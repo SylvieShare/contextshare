@@ -1,0 +1,165 @@
+{{define "top"}}<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · ContextShare</title><link rel="stylesheet" href="/assets/app.css"></head>
+<body><header class="chrome"><div class="chrome-inner">
+<a class="brand" href="/"><span class="mark" aria-hidden="true">◈</span> ContextShare</a>
+<div class="chrome-actions"><a href="/guide">Памятка MCP</a>
+{{if .User.ID}}<span class="identity">{{.User.Email}}</span><form action="/logout" method="post"><input type="hidden" name="csrf" value="{{.CSRF}}"><button class="quiet">Выйти</button></form>{{else}}<a href="/login">Войти</a>{{end}}
+</div></div></header><main class="layout">
+{{if .Project.ID}}<div class="breadcrumb"><a href="/">Проекты</a><span>›</span><a href="/p/{{.Project.ID}}">{{.Project.Name}}</a></div>
+<nav class="tabs" aria-label="Проект"><a href="/p/{{.Project.ID}}">Главная</a><a href="/p/{{.Project.ID}}/sections">Разделы</a><a href="/p/{{.Project.ID}}/queue">Очередь</a><a href="/p/{{.Project.ID}}/search">Поиск</a><a href="/p/{{.Project.ID}}/access">Доступ</a></nav>{{end}}
+{{end}}
+{{define "bottom"}}</main><footer>ContextShare · контекст проекта</footer></body></html>{{end}}
+{{define "csrf"}}<input type="hidden" name="csrf" value="{{.CSRF}}">{{end}}
+{{define "platforms"}}<fieldset><legend>Платформы</legend><label class="check"><input type="checkbox" name="platforms" value="web">Веб</label><label class="check"><input type="checkbox" name="platforms" value="android">Android</label><label class="check"><input type="checkbox" name="platforms" value="backend">Сервер</label></fieldset>{{end}}
+
+{{define "landing"}}{{template "top" .}}
+<div class="hero"><div><div class="eyebrow">Рабочая база знаний</div><h1>Контекст проекта<br>под рукой</h1><p class="lead">Фичи, решения и задачи со связями и источниками. Один проект для команды и её агентов.</p>
+<div class="actions"><a class="button primary" href="/login">Войти</a><a class="button secondary" href="/register">По приглашению</a></div></div>
+<div class="diagram" aria-label="Структура проекта"><div class="diagram-root"><span class="mark">◈</span> Проект</div><div class="diagram-row"><span>Разделы</span><span>Очередь</span></div><div class="diagram-row small"><span>Ноды и связи</span><span>Веб · Android</span></div></div></div>
+<div class="columns"><article class="card"><h2>Знания</h2><p>Действующие правила, решения и проверенные источники по разделам.</p></article><article class="card"><h2>Очередь</h2><p>Идеи из чата, общий результат и отдельные части работы для платформ.</p></article><article class="card"><h2>MCP</h2><p>Контекст и задачи по выданным правам на выбранный проект.</p></article></div>
+{{template "bottom" .}}{{end}}
+
+{{define "login"}}{{template "top" .}}
+<section class="card auth"><div class="eyebrow">Аккаунт</div><h1>Войти</h1>{{if .Error}}<p role="alert" class="error">{{.Error}}</p>{{end}}
+<form method="post" action="/login" class="stack">{{template "csrf" .}}<input type="hidden" name="next" value="{{.Next}}">
+<label>Почта<input type="email" name="email" autocomplete="username" required></label>
+<label>Пароль<input type="password" name="password" autocomplete="current-password" required></label>
+<button class="primary">Войти</button></form><p><a href="/register">Зарегистрироваться по приглашению</a></p></section>
+{{template "bottom" .}}{{end}}
+
+{{define "register"}}{{template "top" .}}
+<section class="card auth"><div class="eyebrow">Приглашение</div><h1>Регистрация</h1>{{if .Error}}<p role="alert" class="error">{{.Error}}</p>{{end}}
+<form method="post" action="/register" class="stack">{{template "csrf" .}}
+<label>Код приглашения<input name="invite" autocomplete="off" required></label>
+<label>Почта<input type="email" name="email" autocomplete="username" required></label>
+<label>Пароль<input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="72" required></label>
+<button class="primary">Создать аккаунт</button></form><p><a href="/login">У меня уже есть аккаунт</a></p></section>
+{{template "bottom" .}}{{end}}
+
+{{define "projects"}}{{template "top" .}}
+<div class="page-title"><div class="eyebrow">Рабочие пространства</div><h1>Проекты</h1><p class="lead">Выберите контекст, с которым будете работать.</p></div>
+<div class="columns">{{range .Projects}}<a class="card project-card" href="/p/{{.ID}}"><span class="pill">{{label .Role}}</span><h2>{{.Name}}</h2><p>{{.Overview}}</p><span class="accent">Открыть проект →</span></a>{{else}}<p class="empty">Здесь появятся ваши проекты.</p>{{end}}</div>
+<details class="card"><summary>Новый проект</summary><form method="post" action="/projects" class="stack">{{template "csrf" .}}
+<label>Название<input name="name" maxlength="160" required></label><label>Краткое описание<textarea name="overview" rows="4"></textarea></label>
+<label>Репозиторий<input type="url" name="repository_url"></label><button class="primary">Создать проект</button></form></details>
+{{template "bottom" .}}{{end}}
+
+{{define "overview"}}{{template "top" .}}
+<div class="page-title"><div class="eyebrow">Главная проекта</div><h1>{{.Project.Name}}</h1>{{if .Project.RepositoryURL}}<a href="{{.Project.RepositoryURL}}" rel="noreferrer">Репозиторий ↗</a>{{end}}</div>
+<div class="split"><article class="card"><h2>О проекте</h2><div class="prose">{{.Project.Overview}}</div></article>
+<article class="card"><h2>Очередь</h2><ul class="metrics">{{range $state,$count:=.Counts}}<li><a href="/p/{{$.Project.ID}}/queue?state={{$state}}">{{label $state}}</a><strong>{{$count}}</strong></li>{{else}}<li class="muted">Заявок пока нет.</li>{{end}}</ul><a href="/p/{{.Project.ID}}/queue">Открыть очередь →</a></article></div>
+<section><h2>Разделы</h2>{{template "section-cards" .}}</section>
+{{if .Editable}}<details class="card"><summary>Редактировать главную</summary><form method="post" action="/p/{{.Project.ID}}/settings" class="stack">{{template "csrf" .}}
+<label>Название<input name="name" value="{{.Project.Name}}" required></label><label>О проекте<textarea name="overview" rows="5">{{.Project.Overview}}</textarea></label><label>Репозиторий<input type="url" name="repository_url" value="{{.Project.RepositoryURL}}"></label><button class="primary">Сохранить</button></form></details>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "section-cards"}}<div class="columns">{{range .Sections}}<a class="card project-card" href="/p/{{$.Project.ID}}/sections/{{.ID}}"><h3>{{.Title}}</h3><p>{{.Summary}}</p><span class="accent">Смотреть ноды →</span></a>{{else}}<p class="empty">Разделов пока нет.</p>{{end}}</div>{{end}}
+
+{{define "sections"}}{{template "top" .}}<div class="page-title"><div class="eyebrow">База знаний</div><h1>Разделы</h1></div>
+{{template "section-cards" .}}
+{{if .Editable}}<details class="card"><summary>Добавить раздел</summary><form method="post" action="/p/{{.Project.ID}}/sections" class="stack">{{template "csrf" .}}<label>Название<input name="title" required></label><label>Описание<textarea name="summary" rows="3"></textarea></label><button class="primary">Добавить</button></form></details>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "node-list"}}<div class="list">{{range .Nodes.Items}}
+<a class="row" href="/p/{{$.Project.ID}}/nodes/{{.ID}}"><div><strong>{{.Title}}</strong><p>{{.Body}}</p></div><span class="pill">{{label .Kind}}</span><span class="pill">{{label .Status}}</span></a>
+{{else}}<p class="empty">Ноды не найдены.</p>{{end}}</div>{{end}}
+
+{{define "node-fields"}}
+<label>Заголовок<input name="title" value="{{.Node.Title}}" required maxlength="160"></label>
+<div class="form-row"><label>Тип<select name="kind">{{range $k:= (sliceKinds)}}<option value="{{$k}}" {{if eq $.Node.Kind $k}}selected{{end}}>{{label $k}}</option>{{end}}</select></label>
+<label>Статус<select name="status"><option value="current" {{if eq .Node.Status "current"}}selected{{end}}>Действует</option><option value="planned" {{if eq .Node.Status "planned"}}selected{{end}}>План</option><option value="historical" {{if eq .Node.Status "historical"}}selected{{end}}>История</option></select></label></div>
+<label>Содержимое<textarea name="body" rows="7" required>{{.Node.Body}}</textarea></label>
+<label>Источник<input type="url" name="source_url" value="{{.Node.SourceURL}}"></label>
+<div class="form-row"><label>Ревизия источника<input name="source_revision" value="{{.Node.SourceRevision}}"></label><label>Дата проверки<input type="date" name="verified_at" value="{{.Node.VerifiedAt}}"></label></div>
+{{end}}
+
+{{define "section"}}{{template "top" .}}<div class="page-title"><div class="eyebrow"><a href="/p/{{.Project.ID}}/sections">Разделы</a></div><h1>{{.Section.Title}}</h1><p class="lead">{{.Section.Summary}}</p></div>
+<div class="toolbar"><a href="?status=current">Действующие</a><a href="?status=all">Все состояния</a></div>
+{{template "node-list" .}}
+{{if .Editable}}<details class="card"><summary>Добавить ноду</summary><form method="post" action="/p/{{.Project.ID}}/sections/{{.Section.ID}}/nodes" class="stack">{{template "csrf" .}}{{template "node-fields" .}}
+<label>Родительская нода<select name="parent_id"><option value="">Самостоятельная</option>{{range .Nodes.Items}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label><button class="primary">Добавить ноду</button></form></details>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "node"}}{{template "top" .}}
+<div class="page-title"><div class="eyebrow"><a href="/p/{{.Project.ID}}/sections/{{.Section.ID}}">{{.Section.Title}}</a></div><h1>{{.Node.Title}}</h1>
+<div class="actions"><span class="pill">{{label .Node.Kind}}</span><span class="pill">{{label .Node.Status}}</span>{{if .Node.VerifiedAt}}<span class="muted">Проверено {{.Node.VerifiedAt}}</span>{{end}}</div></div>
+<article class="card"><div class="prose">{{.Node.Body}}</div>{{if .Node.SourceURL}}<p><a href="{{.Node.SourceURL}}" rel="noreferrer">Источник ↗</a> <span class="mono">{{.Node.SourceRevision}}</span></p>{{end}}</article>
+{{if .Platforms}}<section><h2>Платформы</h2><div class="table-wrap"><table><thead><tr><th>Платформа</th><th>Реализация</th><th>Проверка</th><th>Доступность</th></tr></thead><tbody>{{range .Platforms}}<tr><td>{{label .Platform}}</td><td>{{.Implementation}}</td><td>{{.Verification}}</td><td>{{.Availability}}</td></tr>{{end}}</tbody></table></div></section>{{end}}
+{{if .Nodes.Items}}<section><h2>Составляющие</h2>{{template "node-list" .}}</section>{{end}}
+<section><h2>Связи</h2><div class="list">{{range .Related}}<a class="row" href="/p/{{$.Project.ID}}/nodes/{{.NodeID}}"><strong>{{.Title}}</strong><span class="pill">{{label .Relation}}</span><span class="muted">{{label .Direction}}</span></a>{{else}}<p class="empty">Связей пока нет.</p>{{end}}</div></section>
+<section><h2>Заявки</h2>{{template "request-list" .}}</section>
+{{if .Editable}}<details class="card"><summary>Редактировать ноду</summary><form method="post" action="/p/{{.Project.ID}}/nodes/{{.Node.ID}}" class="stack">{{template "csrf" .}}<input type="hidden" name="version" value="{{.Node.Version}}">{{template "node-fields" .}}<button class="primary">Сохранить</button></form></details>
+<details class="card"><summary>Записать состояние платформы</summary><form method="post" action="/p/{{.Project.ID}}/nodes/{{.Node.ID}}/platform" class="stack">{{template "csrf" .}}
+<label>Платформа<select name="platform"><option value="web">Веб</option><option value="android">Android</option><option value="backend">Сервер</option></select></label>
+<label>Реализация<input name="implementation" required></label><label>Подтверждённая проверка<input name="verification"></label><label>Сборка или выпуск<input name="availability"></label><button class="primary">Записать</button></form></details>
+<details class="card"><summary>Связать с другой нодой</summary><form method="post" action="/p/{{.Project.ID}}/nodes/{{.Node.ID}}/links" class="stack">{{template "csrf" .}}
+<label>Нода<select name="target_id" required>{{range .Choices}}{{if ne .ID $.Node.ID}}<option value="{{.ID}}">{{.Title}}</option>{{end}}{{end}}</select></label>
+<label>Связь<select name="kind"><option value="related">Связано с</option><option value="depends_on">Зависит от</option><option value="verified_by">Проверяется</option><option value="supersedes">Заменяет</option></select></label><button class="primary">Добавить связь</button></form></details>
+<details class="card"><summary>Перенести в другой раздел</summary><form method="post" action="/p/{{.Project.ID}}/nodes/{{.Node.ID}}/move" class="stack">{{template "csrf" .}}<input type="hidden" name="version" value="{{.Node.Version}}"><label>Раздел<select name="target_section" required><option value="">Выберите раздел</option>{{range .Sections}}{{if ne .ID $.Section.ID}}<option value="{{.ID}}">{{.Title}}</option>{{end}}{{end}}</select></label><p>Составляющие, связи и заявки сохранятся.</p><button class="primary">Перенести</button></form></details>
+<details class="card"><summary>Создать заявку для ноды</summary><form method="post" action="/p/{{.Project.ID}}/queue" class="stack">{{template "csrf" .}}<input type="hidden" name="node_id" value="{{.Node.ID}}">{{template "request-fields" .}}<button class="primary">Во входящие</button></form></details>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "search"}}{{template "top" .}}<div class="page-title"><div class="eyebrow">По проекту</div><h1>Поиск</h1></div>
+<form class="toolbar filters" action="/p/{{.Project.ID}}/search"><label>Что ищем<input name="q" value="{{.Query}}" placeholder="Например, офлайн-сохранение"></label>
+<label>Тип<select name="kind"><option value="">Любой</option>{{range $k:= (sliceKinds)}}<option value="{{$k}}" {{if eq $.Kind $k}}selected{{end}}>{{label $k}}</option>{{end}}</select></label>
+<label>Статус<select name="status"><option value="current">Действующие</option><option value="planned" {{if eq .State "planned"}}selected{{end}}>Планы</option><option value="historical" {{if eq .State "historical"}}selected{{end}}>История</option><option value="all" {{if eq .State "all"}}selected{{end}}>Все</option></select></label>
+<label>Платформа<select name="platform"><option value="">Все</option>{{range $p:= (slicePlatforms)}}<option value="{{$p}}" {{if eq $.Platform $p}}selected{{end}}>{{label $p}}</option>{{end}}</select></label><button class="primary">Найти</button></form>
+{{template "node-list" .}}
+{{if .Nodes.NextOffset}}<p><a href="?q={{urlquery .Query}}&amp;kind={{.Kind}}&amp;status={{.State}}&amp;platform={{.Platform}}&amp;offset={{.Nodes.NextOffset}}">Дальше →</a></p>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "request-fields"}}<label>Заголовок<input name="title" required maxlength="160"></label><label>Исходная формулировка<textarea name="body" required rows="4"></textarea></label>
+<label>Тип<select name="kind"><option value="idea">Идея</option><option value="feature">Фича</option><option value="bug">Баг</option></select></label>{{template "platforms" .}}{{end}}
+
+{{define "request-list"}}<div class="list">{{range .Requests.Items}}<a class="row" href="/p/{{$.Project.ID}}/queue/{{.ID}}"><div><strong>{{.Title}}</strong><p>{{.Body}}</p></div><span class="pill">{{label .State}}</span></a>{{else}}<p class="empty">Заявок нет.</p>{{end}}</div>{{end}}
+
+{{define "queue"}}{{template "top" .}}<div class="page-title"><div class="eyebrow">Работа по проекту</div><h1>Очередь</h1></div>
+<form class="toolbar filters" action="/p/{{.Project.ID}}/queue"><label>Статус<select name="state"><option value="">Открытые и завершённые</option>{{range $s:= (sliceStates)}}<option value="{{$s}}" {{if eq $.State $s}}selected{{end}}>{{label $s}}</option>{{end}}</select></label>
+<label>Платформа<select name="platform"><option value="">Все</option>{{range $p:= (slicePlatforms)}}<option value="{{$p}}" {{if eq $.Platform $p}}selected{{end}}>{{label $p}}</option>{{end}}</select></label>
+<label>Тип<select name="kind"><option value="">Все</option>{{range $k:= (sliceRequests)}}<option value="{{$k}}" {{if eq $.Kind $k}}selected{{end}}>{{label $k}}</option>{{end}}</select></label><button class="secondary">Применить</button></form>
+{{template "request-list" .}}
+{{if .Requests.NextOffset}}<p><a href="?state={{.State}}&amp;platform={{.Platform}}&amp;kind={{.Kind}}&amp;offset={{.Requests.NextOffset}}">Дальше →</a></p>{{end}}
+{{if .Editable}}<details class="card"><summary>Добавить заявку</summary><form method="post" action="/p/{{.Project.ID}}/queue" class="stack">{{template "csrf" .}}{{template "request-fields" .}}
+<label>Раздел<select name="section_id"><option value="">Уточнить позже</option>{{range .Sections}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label><button class="primary">Во входящие</button></form></details>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "request"}}{{template "top" .}}<div class="page-title"><div class="eyebrow"><a href="/p/{{.Project.ID}}/queue">Очередь</a></div><h1>{{.Request.Title}}</h1><div class="actions"><span class="pill">{{label .Request.Kind}}</span><span class="pill">{{label .Request.State}}</span></div></div>
+<article class="card"><h2>Формулировка</h2><div class="prose">{{.Request.Body}}</div>{{if .Request.Criteria}}<h2>Критерии готовности</h2><div class="prose">{{.Request.Criteria}}</div>{{end}}{{if .Request.NodeID}}<p><a href="/p/{{.Project.ID}}/nodes/{{.Request.NodeID}}">Нода с контекстом →</a></p>{{else if .Request.SectionID}}<p><a href="/p/{{.Project.ID}}/sections/{{.Request.SectionID}}">Связанный раздел →</a></p>{{end}}</article>
+{{if .Request.Work}}<section><h2>Части работы</h2><div class="columns">{{range .Request.Work}}<article class="card"><h3>{{label .Platform}}</h3><span class="pill">{{label .State}}</span>{{if .Evidence}}<div class="prose">{{.Evidence}}</div>{{end}}
+{{if and $.Editable (ne $.Request.State "inbox") (ne .State "done")}}<form method="post" action="/p/{{$.Project.ID}}/queue/{{$.Request.ID}}/part" class="stack">{{template "csrf" $}}<input type="hidden" name="platform" value="{{.Platform}}">
+{{if eq .State "ready"}}<button class="primary" name="action" value="claim">Взять в работу</button>{{else}}<label>Подтверждение<textarea name="evidence" rows="2" placeholder="Коммит или результат проверки"></textarea></label><div class="actions"><button class="primary" name="action" value="finish">Завершить часть</button><button class="quiet" name="action" value="release">Освободить</button></div>{{end}}</form>{{end}}</article>{{end}}</div></section>{{end}}
+{{if and .Editable (eq .Request.State "inbox")}}<details class="card"><summary>Подготовить к работе</summary><form method="post" action="/p/{{.Project.ID}}/queue/{{.Request.ID}}/prepare" class="stack">{{template "csrf" .}}<input type="hidden" name="version" value="{{.Request.Version}}">
+<label>Что считаем результатом и как проверяем<textarea name="criteria" rows="5" required></textarea></label><fieldset><legend>Части работы</legend>{{range $p:= (slicePlatforms)}}<label class="check"><input type="checkbox" name="platforms" value="{{$p}}" {{if hasPart $.Request.Work $p}}checked{{end}}>{{label $p}}</label>{{end}}</fieldset><button class="primary">Готово к работе</button></form></details>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "access"}}{{template "top" .}}<div class="page-title"><div class="eyebrow">Подключения проекта</div><h1>Доступ</h1></div>
+<div class="split"><article class="card"><h2>Подключение через MCP</h2><p>Адрес сервера</p><code class="block">{{.Base}}/mcp</code><p>В ChatGPT добавьте этот адрес как пользовательский MCP-сервер с OAuth. В окне согласия выберите текущий проект и права.</p><p><a href="/guide">Как пользоваться данными через MCP</a></p></article>
+<article class="card"><h2>Персональный ключ</h2><p>Для CLI и клиентов с Bearer-аутентификацией. Действует 30 дней в этом проекте.</p><form method="post" action="/p/{{.Project.ID}}/access/tokens" class="stack">{{template "csrf" .}}
+<label>Название<input name="label" placeholder="Codex" required maxlength="80"></label>{{if .Editable}}<label class="check"><input type="checkbox" name="scopes" value="requests:add" checked>Добавление заявок</label><label class="check"><input type="checkbox" name="scopes" value="requests:work">Взять часть задачи</label>{{end}}
+<button class="primary">Создать ключ</button></form></article></div>
+<section><h2>Мои подключения</h2><div class="list">{{range .Grants}}<div class="row"><div><strong>{{.Label}}</strong><p>{{range .Scopes}}<span class="pill">{{label .}}</span> {{end}}до {{formatTime .Expires}}</p></div>
+<form method="post" action="/p/{{$.Project.ID}}/access/revoke">{{template "csrf" $}}<input type="hidden" name="grant_id" value="{{.ID}}"><button class="quiet">Отозвать</button></form></div>{{else}}<p class="empty">Активных подключений нет.</p>{{end}}</div></section>
+{{if .Owner}}<details class="card"><summary>Пригласить участника</summary><form method="post" action="/p/{{.Project.ID}}/access/invite" class="stack">{{template "csrf" .}}<label>Роль<select name="role"><option value="viewer">Читатель</option><option value="editor">Редактор</option></select></label><button class="primary">Создать приглашение</button></form></details>{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "secret"}}{{template "top" .}}<section class="card narrow"><h1>{{.Title}}</h1><p>Скопируйте значение. На этой странице оно показывается один раз.</p><code class="block secret">{{.Secret}}</code>
+{{if eq .SecretType "token"}}<p>Передайте ключ клиенту как заголовок <code>Authorization: Bearer …</code>. Адрес MCP — <code>{{.Base}}/mcp</code>.</p>{{else}}<p>Участник вводит код на <a href="/register">странице регистрации</a>.</p>{{end}}<a href="/p/{{.Project.ID}}/access">Вернуться к доступу</a></section>{{template "bottom" .}}{{end}}
+
+{{define "consent"}}{{template "top" .}}<section class="card narrow"><div class="eyebrow">OAuth · ContextShare</div><h1>Доступ к проекту</h1><p>Клиент запросил доступ от имени {{.User.Email}}. Выберите проект и операции, которые ему разрешены.</p><p class="mono muted">{{.OAuth.RedirectURI}}</p>
+{{if .Projects}}<form method="post" action="/oauth/authorize" class="stack">{{template "csrf" .}}
+<input type="hidden" name="client_id" value="{{.OAuth.ClientID}}"><input type="hidden" name="redirect_uri" value="{{.OAuth.RedirectURI}}"><input type="hidden" name="state" value="{{.OAuth.State}}"><input type="hidden" name="scope" value="{{.OAuth.Scope}}"><input type="hidden" name="code_challenge" value="{{.OAuth.Challenge}}"><input type="hidden" name="code_challenge_method" value="S256"><input type="hidden" name="response_type" value="code"><input type="hidden" name="resource" value="{{.OAuth.Resource}}">
+<label>Проект<select name="project_id" required>{{range .Projects}}<option value="{{.ID}}">{{.Name}} · {{label .Role}}</option>{{end}}</select></label><p>Чтение выбранного проекта</p>
+{{if .OAuth.Draft}}<label class="check"><input type="checkbox" name="allow_draft" value="yes" checked>Добавлять заявки во входящие</label>{{end}}
+{{if .OAuth.Work}}<label class="check"><input type="checkbox" name="allow_work" value="yes">Брать готовую часть задачи</label>{{end}}
+<div class="actions"><button class="primary" name="decision" value="allow">Разрешить</button><button class="quiet" name="decision" value="deny">Отказать</button></div></form>{{else}}<p><a href="/">Сначала создайте проект</a>.</p>{{end}}
+</section>{{template "bottom" .}}{{end}}
+
+{{define "guide"}}{{template "top" .}}<section class="card narrow"><div class="eyebrow">ContextShare · MCP</div><h1>Как пользоваться</h1><ol class="guide">
+<li>Выберите проект через <code>list_projects</code> и прочитайте <code>get_project_overview</code>.</li>
+<li>Ищите ноды через <code>list_nodes</code> и <code>search</code>. Для полной карточки используйте <code>get_node</code>, для связей — <code>get_related_nodes</code>.</li>
+<li>Держите у факта один источник. Различайте планы, действующие правила, подтверждение проверки и выпуск.</li>
+<li>Добавляйте идеи пакетом через <code>add_requests</code>. Повторите тот же <code>operation_id</code>, если ответ потерялся.</li>
+<li>Подготовьте заявку в вебе. Агент может взять готовую часть через <code>claim_request</code>, если у него есть право.</li>
+</ol><p>Полная версия — <a href="/guide.md">Markdown-памятка</a> и команда <code>get_usage_guide</code>.</p></section>{{template "bottom" .}}{{end}}
+{{define "error"}}{{template "top" .}}<section class="card narrow"><h1>{{.Error}}</h1><p><a href="/">Вернуться к проектам</a></p></section>{{template "bottom" .}}{{end}}

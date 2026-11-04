@@ -1,0 +1,22 @@
+[Unit]
+Description=ContextShare knowledge service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=contextshare
+Group=contextshare
+EnvironmentFile=/etc/contextshare/runtime.env
+WorkingDirectory=/opt/contextshare/current
+ExecStart=/usr/bin/python3 /opt/contextshare/current/run.py /opt/contextshare/current/contextshare
+Restart=on-failure
+RestartSec=4
+TimeoutStopSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

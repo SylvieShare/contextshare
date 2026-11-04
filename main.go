@@ -1,38 +1,61 @@
 package main
 
 import (
-	_ "embed"
-	"io"
+	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
-//go:embed web/index.html
-var homePage string
+var buildCommit = "development"
 
 func main() {
-	addr := os.Getenv("CONTEXTSHARE_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:8080"
+	if err := run(); err != nil {
+		log.Fatal(err)
 	}
+}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		io.WriteString(w, homePage)
-	})
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, "{\"status\":\"ok\",\"service\":\"contextshare\"}\n")
-	})
-
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+func run() error {
+	cfg, err := configFromEnv()
+	if err != nil {
+		return err
 	}
-	log.Printf("ContextShare listening on %s", addr)
-	log.Fatal(server.ListenAndServe())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	setup, stop := context.WithTimeout(ctx, 30*time.Second)
+	defer stop()
+	db, err := connect(setup, cfg)
+	if err != nil {
+		return err
+	}
+	defer db.pool.Close()
+	if err := db.migrate(setup, cfg.inviteHash); err != nil {
+		return errors.New("database migration failed")
+	}
+	app, err := newApp(cfg, db)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{
+		Addr: cfg.addr, Handler: app.routes(), ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout: 20 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 32 << 10,
+	}
+	stopped := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		shutdown, done := context.WithTimeout(context.Background(), 10*time.Second)
+		defer done()
+		_ = srv.Shutdown(shutdown)
+		close(stopped)
+	}()
+	log.Printf("ContextShare %s listening on %s", buildCommit, cfg.addr)
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	<-stopped
+	return nil
 }

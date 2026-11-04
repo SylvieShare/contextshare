@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew the ContextShare HTTPS certificate
+
+[Service]
+Type=oneshot
+ExecStart=/opt/contextshare/certbot/bin/certbot renew --quiet --deploy-hook "/usr/sbin/nginx -t && /usr/bin/systemctl reload nginx"
