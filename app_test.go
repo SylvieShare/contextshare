@@ -283,7 +283,10 @@ func (f fixtureHTTP) testOAuth(pid string) {
 	values := url.Values{"client_id": {client.ID}, "redirect_uri": {redirect}, "response_type": {"code"}, "state": {"example-state"},
 		"scope": {scopeRead + " " + scopeDraft}, "code_challenge": {base64.RawURLEncoding.EncodeToString(hash[:])},
 		"code_challenge_method": {"S256"}, "resource": {f.base + "/mcp"}}
-	f.do("GET", "/oauth/authorize?"+values.Encode(), "", "", "", 200)
+	consent, _ := f.do("GET", "/oauth/authorize?"+values.Encode(), "", "", "", 200)
+	if !strings.Contains(consent.Get("Content-Security-Policy"), "form-action 'self' "+redirect) {
+		f.t.Fatal("consent page must allow navigation to the registered OAuth callback")
+	}
 	values.Set("project_id", pid)
 	values.Set("allow_draft", "yes")
 	values.Set("decision", "allow")

@@ -193,6 +193,9 @@ func (a *app) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, r, err)
 			return
 		}
+		// Browsers can enforce form-action after the consent POST redirects.
+		// parseOAuth has already matched this callback against the client's registration.
+		w.Header().Set("Content-Security-Policy", formSecurityPolicy+" "+in.RedirectURI)
 		a.render(w, r, "consent", view{Title: "Разрешить доступ к проекту", User: u, Projects: projects, OAuth: in})
 		return
 	}

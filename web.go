@@ -16,6 +16,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+const formSecurityPolicy = "default-src 'none'; style-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
 //go:embed web/pages.html
 var pagesHTML string
 
@@ -160,7 +162,7 @@ func (a *app) routes() http.Handler {
 		// Preserve Origin on same-origin form submissions and suppress cross-origin referrers.
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		w.Header().Set("Content-Security-Policy", formSecurityPolicy)
 		if a.cfg.secure {
 			w.Header().Set("Strict-Transport-Security", "max-age=86400")
 		}
