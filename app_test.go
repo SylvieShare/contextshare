@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -68,6 +69,24 @@ func TestMCPValidatesProxyHostAndOrigin(t *testing.T) {
 				t.Fatalf("got HTTP %d, want %d", response.Code, test.want)
 			}
 		})
+	}
+}
+
+func TestSectionPaginationLinks(t *testing.T) {
+	a, err := newApp(config{base: "http://127.0.0.1:8080"}, &store{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	next := 100
+	v := view{Offset: 50, State: "all", Nodes: page[node]{NextOffset: &next}}
+	if err := a.pages.ExecuteTemplate(&body, "section", v); err != nil {
+		t.Fatal(err)
+	}
+	for _, href := range []string{`href="?status=all&amp;offset=0"`, `href="?status=all&amp;offset=100"`} {
+		if !strings.Contains(body.String(), href) {
+			t.Errorf("missing section navigation link %s", href)
+		}
 	}
 }
 

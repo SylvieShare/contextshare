@@ -55,6 +55,7 @@ type view struct {
 	Grants                                             []grant
 	OAuth                                              oauthParams
 	Query, State, Platform, Kind                       string
+	Offset, PreviousOffset                             int
 	Editable, Owner                                    bool
 }
 
@@ -348,13 +349,19 @@ func (a *app) sectionPage(w http.ResponseWriter, r *http.Request, u user, p proj
 		a.fail(w, r, err)
 		return
 	}
-	state := r.URL.Query().Get("status")
-	nodes, err := a.db.nodes(r.Context(), p.ID, nodeFilter{SectionID: v.ID, Status: state, Limit: 50})
+	query := r.URL.Query()
+	state := query.Get("status")
+	requestedOffset, _ := strconv.Atoi(query.Get("offset"))
+	limit, offset := pageArgs(50, requestedOffset)
+	nodes, err := a.db.nodes(r.Context(), p.ID, nodeFilter{SectionID: v.ID, Status: state, Limit: limit, Offset: offset})
 	if err != nil {
 		a.fail(w, r, err)
 		return
 	}
-	a.render(w, r, "section", view{Title: v.Title, Project: p, User: u, Section: v, Nodes: nodes, State: state})
+	a.render(w, r, "section", view{
+		Title: v.Title, Project: p, User: u, Section: v, Nodes: nodes, State: state,
+		Offset: offset, PreviousOffset: max(0, offset-limit),
+	})
 }
 
 func nodeFromForm(r *http.Request) node {

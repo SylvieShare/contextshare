@@ -77,6 +77,10 @@
 {{define "section"}}{{template "top" .}}<div class="page-title"><div class="eyebrow"><a href="/p/{{.Project.ID}}/sections">Разделы</a></div><h1>{{.Section.Title}}</h1><p class="lead">{{.Section.Summary}}</p></div>
 <div class="toolbar"><a href="?status=current">Действующие</a><a href="?status=all">Все состояния</a></div>
 {{template "node-list" .}}
+{{if or .Offset .Nodes.NextOffset}}<nav class="toolbar" aria-label="Страницы раздела">
+{{if .Offset}}<a href="?status={{.State}}&amp;offset={{.PreviousOffset}}">← Назад</a>{{end}}
+{{if .Nodes.NextOffset}}<a href="?status={{.State}}&amp;offset={{.Nodes.NextOffset}}">Дальше →</a>{{end}}
+</nav>{{end}}
 {{if .Editable}}<details class="card"><summary>Добавить ноду</summary><form method="post" action="/p/{{.Project.ID}}/sections/{{.Section.ID}}/nodes" class="stack">{{template "csrf" .}}{{template "node-fields" .}}
 <label>Родительская нода<select name="parent_id"><option value="">Самостоятельная</option>{{range .Nodes.Items}}<option value="{{.ID}}">{{.Title}}</option>{{end}}</select></label><button class="primary">Добавить ноду</button></form></details>{{end}}
 {{template "bottom" .}}{{end}}
