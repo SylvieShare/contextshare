@@ -97,3 +97,71 @@ func TestLocalWorkspace(t *testing.T) {
 		t.Fatalf("expected stale version conflict: %v", err)
 	}
 }
+
+func TestWikiWrites(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	if output, err := exec.CommandContext(ctx, "git", "init", "--quiet", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if err := os.Mkdir(filepath.Join(dir, ".contextshare"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	config := `{"version":1,"wiki_dir":".contextshare/wiki","project":{"id":"wiki","name":"Wiki"},"sections":[{"id":"guide","title":"Guide","paths":[]}],"fallback_section":"guide"}`
+	if err := os.WriteFile(filepath.Join(dir, ".contextshare", "project.json"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w, err := openLocalWorkspace(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.close()
+	created, err := w.writeWiki(ctx, wikiWriteArgs{ProjectID: "wiki", Path: "models.md", Content: "# Модели\n\nПервый рецепт.\n"})
+	if err != nil || created.Path != ".contextshare/wiki/models.md" {
+		t.Fatalf("create failed: %v", err)
+	}
+	data, err := w.load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	part, err := w.readWikiRange(data.config, wikiReadArgs{Path: created.Path, StartLine: 3, LineCount: 1})
+	if err != nil || part.SHA256 != created.SHA256 || part.Content != "Первый рецепт.\n" {
+		t.Fatalf("range with full-file revision: %+v, %v", part, err)
+	}
+	edit := wikiWriteArgs{ProjectID: "wiki", Path: created.Path, Expected: created.SHA256, Find: "Первый", Replace: "Второй"}
+	updated, err := w.writeWiki(ctx, edit)
+	if err != nil || updated.SHA256 == created.SHA256 {
+		t.Fatalf("fragment update failed: %v", err)
+	}
+	if _, err := w.writeWiki(ctx, edit); !errors.Is(err, errConflict) {
+		t.Fatalf("stale edit must conflict: %v", err)
+	}
+	if _, err := w.writeWiki(ctx, wikiWriteArgs{ProjectID: "wiki", Path: "../README.md", Content: "# Escape"}); !errors.Is(err, errInvalid) {
+		t.Fatalf("path escape must fail: %v", err)
+	}
+	if _, err := w.writeWiki(ctx, wikiWriteArgs{ProjectID: "wiki", Path: "README.md", Content: "# Wiki\n\n[Модели](models.md)\n"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.deleteWiki(ctx, wikiDeleteArgs{ProjectID: "wiki", Path: updated.Path, Expected: updated.SHA256}); !errors.Is(err, errConflict) {
+		t.Fatalf("incoming link must prevent deletion: %v", err)
+	}
+	saved, err := w.writeWikiAttachment(ctx, wikiAttachmentWriteArgs{ProjectID: "wiki", Path: "model.json", Content: `{"sourceCode":"TILE-1"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := w.readWikiAttachment(data.config, "model.json")
+	if err != nil || !strings.Contains(attachment.Content, "TILE-1") || attachment.SHA256 != saved.SHA256 {
+		t.Fatalf("manifest read failed: %+v, %v", attachment, err)
+	}
+	if _, err := w.writeWikiAttachment(ctx, wikiAttachmentWriteArgs{ProjectID: "wiki", Path: "model.json", Content: `{}`}); !errors.Is(err, errConflict) {
+		t.Fatalf("manifest replacement without a version must conflict: %v", err)
+	}
+	link := wikiLinkArgs{ProjectID: "wiki", From: ".contextshare/wiki/README.md", To: created.Path, Kind: "related"}
+	if _, err := w.setWikiLink(ctx, link); err != nil {
+		t.Fatal(err)
+	}
+	link.Remove = true
+	if _, err := w.setWikiLink(ctx, link); err != nil {
+		t.Fatal(err)
+	}
+}

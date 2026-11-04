@@ -28,6 +28,14 @@ type localConfig struct {
 	Project         project        `json:"project"`
 	Sections        []localSection `json:"sections"`
 	FallbackSection string         `json:"fallback_section"`
+	WikiDir         string         `json:"wiki_dir,omitempty"`
+}
+
+func (c localConfig) wikiDir() string {
+	if c.WikiDir == "" {
+		return "md"
+	}
+	return c.WikiDir
 }
 
 type localNode struct {
@@ -96,9 +104,17 @@ func readLocalFiles(root *os.Root) (map[string][]byte, string, error) {
 			return nil, "", fmt.Errorf("%s: %w", name, err)
 		}
 	}
-	for _, dir := range []string{"md", localDir + "/notes", localDir + "/requests"} {
+	var config localConfig
+	if err := decodeLocal(files[localDir+"/project.json"], &config); err != nil {
+		return nil, "", err
+	}
+	wiki := config.wikiDir()
+	if !fs.ValidPath(wiki) || strings.ContainsAny(wiki, "\\:") || wiki == "." || wiki == localDir || strings.HasPrefix(wiki, ".git") {
+		return nil, "", fmt.Errorf("invalid wiki_dir")
+	}
+	for _, dir := range []string{wiki, localDir + "/notes", localDir + "/requests"} {
 		ext := ".json"
-		if dir == "md" {
+		if dir == wiki {
 			ext = ".md"
 		}
 		if err := fs.WalkDir(root.FS(), dir, func(name string, entry fs.DirEntry, err error) error {
@@ -153,9 +169,9 @@ func buildLocalSnapshot(root *os.Root, files map[string][]byte, hash string) (*l
 	}
 	for _, name := range sortedLocalKeys(files) {
 		switch {
-		case name == "README.md" || strings.HasPrefix(name, "md/"):
+		case name == "README.md" || strings.HasPrefix(name, config.wikiDir()+"/"):
 			data.documents++
-			for _, n := range localMarkdownNodes(name, string(files[name]), config.sectionFor(name)) {
+			for _, n := range localMarkdownNodes(name, string(files[name]), config.sectionFor(name), strings.HasPrefix(name, config.wikiDir()+"/reports/")) {
 				if data.notes[n.ID].Node.ID != "" {
 					return nil, fmt.Errorf("%s: duplicate node ID %q", name, n.ID)
 				}
@@ -286,11 +302,11 @@ func resolveLocalLink(source, target string) (string, string, bool) {
 	return dest, u.Fragment, fs.ValidPath(dest) && dest != "."
 }
 
-func localMarkdownNodes(name, raw, sectionID string) []localNode {
+func localMarkdownNodes(name, raw, sectionID string, historical bool) []localNode {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	title := path.Base(name)
 	status, kind := "current", "guide"
-	if strings.HasPrefix(name, "md/reports/") || strings.Contains(raw, "Статус: указатель исторического отчёта") {
+	if historical || strings.Contains(raw, "Статус: указатель исторического отчёта") {
 		status, kind = "historical", "evidence"
 	}
 	type heading struct {

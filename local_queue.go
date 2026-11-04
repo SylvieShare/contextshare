@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -228,7 +229,11 @@ func (w *localWorkspace) saveLocalBatch(name string, batch localBatch) error {
 	if err != nil {
 		return err
 	}
-	dir := localDir + "/requests"
+	return w.saveLocalFile(name, append(body, '\n'))
+}
+
+func (w *localWorkspace) saveLocalFile(name string, body []byte) error {
+	dir := path.Dir(name)
 	if err := w.root.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -238,7 +243,7 @@ func (w *localWorkspace) saveLocalBatch(name string, batch localBatch) error {
 		return err
 	}
 	defer w.root.Remove(temp)
-	if _, err := f.Write(append(body, '\n')); err != nil {
+	if _, err := f.Write(body); err != nil {
 		f.Close()
 		return err
 	}

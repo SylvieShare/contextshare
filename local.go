@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"sort"
@@ -21,9 +20,6 @@ func runLocal(args []string) error {
 		}
 		return err
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("unexpected local command arguments")
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	w, err := openLocalWorkspace(ctx, *directory)
@@ -31,6 +27,9 @@ func runLocal(args []string) error {
 		return err
 	}
 	defer w.close()
+	if flags.NArg() > 0 {
+		return w.wikiCLI(ctx, flags.Args())
+	}
 	return w.localServer().Run(ctx, &mcp.StdioTransport{})
 }
 
@@ -187,6 +186,7 @@ func (w *localWorkspace) localServer() *mcp.Server {
 			return localPage(related, in.Limit, in.Offset), nil
 		})
 	w.registerLocalQueue(server)
+	w.registerLocalWiki(server)
 	return server
 }
 
@@ -199,10 +199,11 @@ func localPage[T any](items []T, limit, offset int) page[T] {
 const localGuide = `# ContextShare Local
 
 - Сначала вызови list_projects и get_project_overview. Для чтения используй search, get_node и get_related_nodes.
-- md/ и README.md живут в рабочем дереве Git. source_path и номера строк относятся к текущему worktree. Исходные ссылки импортированных заметок относятся к закреплённой ревизии.
+- Вики живёт в каталоге wiki_dir рабочего дерева Git. source_path и номера строк относятся к текущему worktree. Исходные ссылки импортированных заметок относятся к закреплённой ревизии.
+- Для записи в вики используй get_wiki_document и write_wiki_document с ожидаемым SHA-256. Манифесты читай через get_wiki_attachment. Для удаления по запросу используй delete_wiki_document, для связей set_wiki_link. После правки запускай validate_wiki.
 - Связанные файлы кода указаны в code_paths. Определения и использования ищи через rg, а сигнатуры и связи сверяй с исходниками.
 - Поиск по умолчанию включает историю и планы. Для действующих правил передавай status=current. Кавычки, OR и дефис задают условия поиска.
 - Новые заявки сохраняй через add_requests. Повтор одинаковой операции должен иметь тот же operation_id. Состояния работы веба, Android и сервера хранятся отдельно.
-- Сохраняй историю производства в md/reports/ или в отдельных notes с датой, кодом объекта, результатом и источником. Подготовка, приёмка и публикация имеют разные подтверждения.
+- Сохраняй историю производства в reports/ вики или в отдельных notes с датой, кодом объекта, результатом и источником. Подготовка, приёмка и публикация имеют разные подтверждения.
 - Файлы .contextshare/ являются обычными данными Git. SQLite используется как восстанавливаемый индекс. Проверяй изменения записей перед переносом между ветками.
 `

@@ -14,7 +14,8 @@ go build -o contextshare.exe .
 codex mcp add contextshare-local -- C:/Tools/contextshare.exe local --project C:/Projects/my-worktree
 ```
 
-Источник данных — `README.md`, `md/**/*.md` и текстовые файлы `.contextshare/`.
+Источник данных — `README.md`, каталог `wiki_dir` из конфигурации проекта и
+текстовые файлы `.contextshare/`.
 В `project.json` указываются `version: 1`, `project`, `sections` с путями или
 префиксами с завершающим `*` и `fallback_section`. `notes/*.json` хранят
 самостоятельные ноды и подтверждения по платформам, `links.json` — типизированные
@@ -26,6 +27,16 @@ codex mcp add contextshare-local -- C:/Tools/contextshare.exe local --project C:
 каталоге выбранного worktree. При изменении файлов обновляется поиск, локальные
 пути и ссылки. История доступна в общем поиске и по фильтру `historical`.
 Обзор и чтение работают без HTTP и PostgreSQL.
+
+Вики читается через `get_wiki_document`, вложения через `get_wiki_attachment`.
+`write_wiki_attachment` сохраняет JSON, CSV, PNG и WebP, проверяя версию
+существующего вложения. Изображение можно взять из файла в текущем worktree.
+`write_wiki_document` создаёт страницу или обновляет её по SHA-256 полного файла.
+Можно передать новый `content` либо уникальный фрагмент `find` и его `replace`.
+`delete_wiki_document` защищает оглавление и страницы с входящими ссылками.
+`set_wiki_link` обновляет типизированные связи. `validate_wiki` запускает проверку
+структуры и ссылок в проекте. Для скриптов доступны `local --project PATH wiki
+get|write|validate`, команды чтения и записи принимают JSON в stdin.
 
 ## Облачный запуск
 
