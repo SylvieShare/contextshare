@@ -4,7 +4,30 @@
 секции, ноды, типизированные связи и очередь заявок. Для веба и Android
 сохраняются отдельные подтверждения, сборки и части одной заявки.
 
-## Запуск
+## Локальный режим
+
+Локальный MCP работает с одним Git worktree через stdio. Укажите путь к
+репозиторию с файлом `.contextshare/project.json`.
+
+```powershell
+go build -o contextshare.exe .
+codex mcp add contextshare-local -- C:/Tools/contextshare.exe local --project C:/Projects/my-worktree
+```
+
+Источник данных — `README.md`, `md/**/*.md` и текстовые файлы `.contextshare/`.
+В `project.json` указываются `version: 1`, `project`, `sections` с путями или
+префиксами с завершающим `*` и `fallback_section`. `notes/*.json` хранят
+самостоятельные ноды и подтверждения по платформам, `links.json` — типизированные
+связи, `requests/*.json` — заявки. Новые заявки записываются атомарно и повтор
+операции проверяется по `operation_id`. Подготовка и взятие части задачи требуют
+`expected_version`. Разные worktree сходятся через Git.
+
+Вспомогательная SQLite-база `contextshare-index-v1.sqlite` находится в Git
+каталоге выбранного worktree. При изменении файлов обновляется поиск, локальные
+пути и ссылки. История доступна в общем поиске и по фильтру `historical`.
+Обзор и чтение работают без HTTP и PostgreSQL.
+
+## Облачный запуск
 
 Нужен Go 1.26+ и PostgreSQL. Перед запуском задайте `DB_URL`, `DB_USER` и
 `DB_PASSWORD`. Поддерживается и формат `jdbc:postgresql://…` для `DB_URL`.

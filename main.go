@@ -14,7 +14,11 @@ import (
 var buildCommit = "development"
 
 func main() {
-	if err := run(); err != nil {
+	entry := run
+	if len(os.Args) > 1 && os.Args[1] == "local" {
+		entry = func() error { return runLocal(os.Args[2:]) }
+	}
+	if err := entry(); err != nil {
 		log.Fatal(err)
 	}
 }
