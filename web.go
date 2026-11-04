@@ -489,6 +489,9 @@ func (a *app) addLink(w http.ResponseWriter, r *http.Request, u user, p project)
 func (a *app) searchPage(w http.ResponseWriter, r *http.Request, u user, p project) {
 	q := r.URL.Query()
 	state, platform, kind, query := q.Get("status"), q.Get("platform"), q.Get("kind"), strings.TrimSpace(q.Get("q"))
+	if state == "" {
+		state = "all"
+	}
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	nodes, err := a.db.nodes(r.Context(), p.ID, nodeFilter{Query: query, Status: state, Platform: platform, Kind: kind, Offset: offset})
 	if err != nil {

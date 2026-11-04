@@ -258,6 +258,7 @@ func TestPostgresMCPIntegration(t *testing.T) {
 		t.Fatal("missing project overview")
 	}
 	f.tool(pat, "get_project_overview", projectArgs{other}, true)
+	f.testSearch(pid, sid, pat)
 	if out := f.tool(pat, "get_related_nodes", relationArgs{ProjectID: pid, NodeID: nid}, false); !strings.Contains(string(out), "Ability checks") {
 		t.Fatal("missing incoming link")
 	}
@@ -312,6 +313,50 @@ func TestPostgresMCPIntegration(t *testing.T) {
 	f.testOAuth(pid)
 	f.post("/p/"+pid+"/access/revoke", url.Values{"grant_id": {g.ID}}, 303)
 	f.do("POST", "/mcp", "application/json", "{}", pat, 401)
+}
+
+func (f fixtureHTTP) testSearch(pid, sid, pat string) {
+	f.t.Helper()
+	path := "/p/" + pid + "/sections/" + sid + "/nodes"
+	add := func(title, body, status string) {
+		f.post(path, url.Values{"title": {title}, "body": {body}, "status": {status}, "kind": {"guide"}}, 303)
+	}
+	add("Требования к 3D-полю Android",
+		strings.Repeat("Рекомендации для устройства. ", 20)+"Для запуска карты требуется OpenGL ES 3.0.", "current")
+	add("Новости Android", "Здесь перечислены обновления интерфейса.", "current")
+	add("Запуск редактора", "Последовательность действий и проверка устройства.", "current")
+	add("Редактор: запуск после обновления", "На этой сборке проверен Vulkan.", "current")
+	add("Девятый набор миниатюр", "Датированный отчёт о публикации.", "historical")
+	search := func(query, status string) []node {
+		var results page[node]
+		if err := json.Unmarshal(f.tool(pat, "search", nodeListArgs{ProjectID: pid, Query: query, Status: status}, false), &results); err != nil {
+			f.t.Fatal(err)
+		}
+		return results.Items
+	}
+	if hits := search("почему не запускается 3D-поле Android", "current"); len(hits) != 1 || hits[0].Title != "Требования к 3D-полю Android" {
+		f.t.Fatal("natural-language search missed the most relevant node")
+	}
+	if hits := search("OpenGL ES 3.0", "current"); len(hits) != 1 || !strings.Contains(hits[0].Body, "OpenGL ES 3.0") || len(hits[0].Body) >= 420 {
+		f.t.Fatal("search preview does not show the match deep in the document")
+	}
+	if hits := search("запуски редакторов", "current"); len(hits) == 0 || hits[0].Title != "Запуск редактора" {
+		f.t.Fatal("search does not rank inflected title matches")
+	}
+	if hits := search("\"запуск редактора\" -Vulkan", "current"); len(hits) != 1 || hits[0].Title != "Запуск редактора" {
+		f.t.Fatal("search did not honor phrase and exclusion syntax")
+	}
+	if hits := search("девятый набор миниатюр", ""); len(hits) != 1 || hits[0].Status != "historical" {
+		f.t.Fatal("historical result was not found by default")
+	}
+	if hits := search("девятый набор миниатюр", "current"); len(hits) != 0 {
+		f.t.Fatal("explicit current status included history")
+	}
+	params := url.Values{"q": {"девятый набор миниатюр"}}
+	_, html := f.do("GET", "/p/"+pid+"/search?"+params.Encode(), "", "", "", 200)
+	if !strings.Contains(string(html), "Девятый набор миниатюр") || !strings.Contains(string(html), "История") {
+		f.t.Fatal("web search did not show the historical match")
+	}
 }
 
 func (f fixtureHTTP) testOAuth(pid string) {

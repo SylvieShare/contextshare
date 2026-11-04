@@ -29,7 +29,7 @@ type nodeListArgs struct {
 	ProjectID string `json:"project_id"`
 	SectionID string `json:"section_id,omitempty"`
 	Kind      string `json:"kind,omitempty" jsonschema:"feature, rule, decision, limitation, guide or evidence"`
-	Status    string `json:"status,omitempty" jsonschema:"current by default; planned, historical or all are explicit"`
+	Status    string `json:"status,omitempty" jsonschema:"current, planned, historical or all; omitted uses the tool default"`
 	Platform  string `json:"platform,omitempty" jsonschema:"web, android or backend"`
 	Query     string `json:"query,omitempty"`
 	Limit     int    `json:"limit,omitempty"`
@@ -194,11 +194,14 @@ func (a *app) makeMCP() http.Handler {
 		}
 		return a.db.nodes(ctx, in.ProjectID, nodeFilter{SectionID: in.SectionID, Kind: in.Kind, Status: in.Status, Query: in.Query, Platform: in.Platform, Limit: in.Limit, Offset: in.Offset})
 	}
-	addTool(a, server, "list_nodes", "List node previews, optionally filtered by section, type, platform and status.", scopeRead, true, listNodes)
-	addTool(a, server, "search", "Search knowledge by query with project, platform, type and status filters. Returns short previews.", scopeRead, true,
+	addTool(a, server, "list_nodes", "List current node previews by default, optionally filtered by section, type, platform and status.", scopeRead, true, listNodes)
+	addTool(a, server, "search", "Find relevant nodes by a phrase or question. Searches all statuses by default, ranks matches and returns excerpts. Use status=current for current guidance.", scopeRead, true,
 		func(ctx context.Context, g grant, in nodeListArgs) (page[node], error) {
 			if !textOK(in.Query, 1, 240) {
 				return page[node]{}, errInvalid
+			}
+			if in.Status == "" {
+				in.Status = "all"
 			}
 			return listNodes(ctx, g, in)
 		})

@@ -93,21 +93,23 @@ func (s *store) nodes(ctx context.Context, pid string, f nodeFilter) (page[node]
 		return page[node]{}, errInvalid
 	}
 	limit, offset := pageArgs(f.Limit, f.Offset)
-	pattern := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(f.Query)
-	rows, err := s.pool.Query(ctx, s.q(`SELECT `+nodePreview+` FROM cs.nodes n WHERE project_id=$1
-		AND ($2='' OR section_id=$2) AND ($3='' OR kind=$3) AND ($4='all' OR status=$4)
-		AND ($5='' OR title ILIKE '%'||$6||'%' OR body ILIKE '%'||$6||'%'
-			OR to_tsvector('russian',title||' '||body) @@ websearch_to_tsquery('russian',$5))
-		AND ($7='' OR NOT EXISTS (SELECT 1 FROM cs.node_platforms np WHERE np.project_id=n.project_id AND np.node_id=n.id)
-			OR EXISTS (SELECT 1 FROM cs.node_platforms np WHERE np.project_id=n.project_id AND np.node_id=n.id AND np.platform=$7))
-		ORDER BY (title ILIKE '%'||$6||'%') DESC,(status='current') DESC,title,id LIMIT $8 OFFSET $9`),
-		pid, f.SectionID, f.Kind, f.Status, f.Query, pattern, f.Platform, limit+1, offset)
+	if query := strings.TrimSpace(f.Query); query != "" {
+		return s.searchNodes(ctx, pid, f, query, limit, offset)
+	}
+	rows, err := s.pool.Query(ctx, s.q("SELECT "+nodePreview+" FROM cs.nodes n WHERE "+nodeFiltersSQL+
+		" ORDER BY (status='current') DESC,title,id LIMIT $6 OFFSET $7"),
+		pid, f.SectionID, f.Kind, f.Status, f.Platform, limit+1, offset)
 	if err != nil {
 		return page[node]{}, err
 	}
 	items, err := pgx.CollectRows(rows, nodeScan)
 	return paginate(items, limit, offset), err
 }
+
+const nodeFiltersSQL = `n.project_id=$1
+	AND ($2='' OR n.section_id=$2) AND ($3='' OR n.kind=$3) AND ($4='all' OR n.status=$4)
+	AND ($5='' OR NOT EXISTS (SELECT 1 FROM cs.node_platforms np WHERE np.project_id=n.project_id AND np.node_id=n.id)
+		OR EXISTS (SELECT 1 FROM cs.node_platforms np WHERE np.project_id=n.project_id AND np.node_id=n.id AND np.platform=$5))`
 
 func (s *store) node(ctx context.Context, pid, id string) (node, error) {
 	rows, err := s.pool.Query(ctx, s.q("SELECT "+nodeColumns+" FROM cs.nodes WHERE project_id=$1 AND id=$2"), pid, id)

@@ -105,9 +105,9 @@
 {{template "bottom" .}}{{end}}
 
 {{define "search"}}{{template "top" .}}<div class="page-title"><div class="eyebrow">По проекту</div><h1>Поиск</h1></div>
-<form class="toolbar filters" action="/p/{{.Project.ID}}/search"><label>Что ищем<input name="q" value="{{.Query}}" placeholder="Например, офлайн-сохранение"></label>
+<form class="toolbar filters" action="/p/{{.Project.ID}}/search"><label>Что ищем<input name="q" value="{{.Query}}" placeholder="Например, как восстановить черновик"></label>
 <label>Тип<select name="kind"><option value="">Любой</option>{{range $k:= (sliceKinds)}}<option value="{{$k}}" {{if eq $.Kind $k}}selected{{end}}>{{label $k}}</option>{{end}}</select></label>
-<label>Статус<select name="status"><option value="current">Действующие</option><option value="planned" {{if eq .State "planned"}}selected{{end}}>Планы</option><option value="historical" {{if eq .State "historical"}}selected{{end}}>История</option><option value="all" {{if eq .State "all"}}selected{{end}}>Все</option></select></label>
+<label>Статус<select name="status"><option value="all" {{if eq .State "all"}}selected{{end}}>Все</option><option value="current" {{if eq .State "current"}}selected{{end}}>Действующие</option><option value="planned" {{if eq .State "planned"}}selected{{end}}>Планы</option><option value="historical" {{if eq .State "historical"}}selected{{end}}>История</option></select></label>
 <label>Платформа<select name="platform"><option value="">Все</option>{{range $p:= (slicePlatforms)}}<option value="{{$p}}" {{if eq $.Platform $p}}selected{{end}}>{{label $p}}</option>{{end}}</select></label><button class="primary">Найти</button></form>
 {{template "node-list" .}}
 {{if .Nodes.NextOffset}}<p><a href="?q={{urlquery .Query}}&amp;kind={{.Kind}}&amp;status={{.State}}&amp;platform={{.Platform}}&amp;offset={{.Nodes.NextOffset}}">Дальше →</a></p>{{end}}

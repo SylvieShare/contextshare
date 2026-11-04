@@ -151,6 +151,10 @@ CREATE TABLE IF NOT EXISTS cs.oauth_codes (
 );
 CREATE INDEX IF NOT EXISTS cs_sections_project ON cs.sections(project_id,position,id);
 CREATE INDEX IF NOT EXISTS cs_nodes_project_section ON cs.nodes(project_id,section_id,status,id);
+ALTER TABLE cs.nodes ADD COLUMN IF NOT EXISTS search_document tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('russian',title),'A') || setweight(to_tsvector('russian',body),'D')
+) STORED;
+CREATE INDEX IF NOT EXISTS cs_nodes_search ON cs.nodes USING GIN(search_document);
 CREATE INDEX IF NOT EXISTS cs_links_reverse ON cs.node_links(project_id,to_id);
 CREATE INDEX IF NOT EXISTS cs_requests_project_state ON cs.requests(project_id,state,created_at DESC);
 CREATE INDEX IF NOT EXISTS cs_tokens_grant ON cs.tokens(grant_id);
