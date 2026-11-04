@@ -324,8 +324,10 @@ func (f fixtureHTTP) testSearch(pid, sid, pat string) {
 	add("Требования к 3D-полю Android",
 		strings.Repeat("Рекомендации для устройства. ", 20)+"Для запуска карты требуется OpenGL ES 3.0.", "current")
 	add("Новости Android", "Здесь перечислены обновления интерфейса.", "current")
+	add("Архитектура", "Android запускается. Описано 3D-поле.", "current")
 	add("Запуск редактора", "Последовательность действий и проверка устройства.", "current")
 	add("Редактор: запуск после обновления", "На этой сборке проверен Vulkan.", "current")
+	add("Складные экраны", "Для раскладки учитывается разделяющий hinge.", "current")
 	add("Девятый набор миниатюр", "Датированный отчёт о публикации.", "historical")
 	search := func(query, status string) []node {
 		var results page[node]
@@ -334,7 +336,7 @@ func (f fixtureHTTP) testSearch(pid, sid, pat string) {
 		}
 		return results.Items
 	}
-	if hits := search("почему не запускается 3D-поле Android", "current"); len(hits) != 1 || hits[0].Title != "Требования к 3D-полю Android" {
+	if hits := search("почему не запускается 3D-поле Android", "current"); len(hits) == 0 || hits[0].Title != "Требования к 3D-полю Android" {
 		f.t.Fatal("natural-language search missed the most relevant node")
 	}
 	if hits := search("OpenGL ES 3.0", "current"); len(hits) != 1 || !strings.Contains(hits[0].Body, "OpenGL ES 3.0") || len(hits[0].Body) >= 420 {
@@ -342,6 +344,9 @@ func (f fixtureHTTP) testSearch(pid, sid, pat string) {
 	}
 	if hits := search("запуски редакторов", "current"); len(hits) == 0 || hits[0].Title != "Запуск редактора" {
 		f.t.Fatal("search does not rank inflected title matches")
+	}
+	if hits := search("разделяющий шарнир", "current"); len(hits) != 1 || hits[0].Title != "Складные экраны" {
+		f.t.Fatal("search did not recognize the bilingual term")
 	}
 	if hits := search("\"запуск редактора\" -Vulkan", "current"); len(hits) != 1 || hits[0].Title != "Запуск редактора" {
 		f.t.Fatal("search did not honor phrase and exclusion syntax")

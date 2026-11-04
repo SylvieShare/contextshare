@@ -21,18 +21,28 @@ func allowPartialSearch(query string) bool {
 	return true
 }
 
-const nodeSearchOrder = `title_literal DESC, exact_match DESC, matched_terms DESC, title_terms DESC,
-	(status='current') DESC, (body_position > 0) DESC,
-	CASE WHEN title_literal THEN char_length(title) ELSE 0 END, relevance DESC, title, id`
+const nodeSearchOrder = `title_literal DESC, CASE WHEN title_literal THEN char_length(title) ELSE 0 END,
+	(body_position > 0) DESC,
+	(matched_terms + 2 * title_terms + exact_match::int) DESC, (status='current') DESC,
+	relevance DESC, title, id`
 
 const nodeSearchSQL = `
 	WITH parsed AS (
 		SELECT lower($6::text) AS literal,
 		       websearch_to_tsquery('russian', $6) AS exact,
 		       tsvector_to_array(to_tsvector('russian', regexp_replace($6, '[^[:alnum:]_]+', ' ', 'g'))) AS terms
+	), aliases AS (
+		SELECT tsvector_to_array(to_tsvector('russian', words)) AS alternatives
+		FROM (VALUES ('шарнир hinge'), ('черновик draft'),
+		             ('офлайн оффлайн offline'), ('автосохранение autosave')) AS vocabulary(words)
+	), term_groups AS (
+		SELECT coalesce(a.alternatives, ARRAY[term]) AS alternatives
+		FROM parsed CROSS JOIN LATERAL unnest(terms) AS words(term)
+		LEFT JOIN aliases a ON $7::boolean AND term = ANY(a.alternatives)
 	), queries AS (
 		SELECT parsed.*,
-		       coalesce((SELECT string_agg(quote_literal(term), ' | ') FROM unnest(terms) AS words(term)), '')::tsquery AS partial
+		       coalesce((SELECT string_agg(DISTINCT quote_literal(term), ' | ')
+		                 FROM term_groups CROSS JOIN LATERAL unnest(alternatives) AS words(term)), '')::tsquery AS partial
 		FROM parsed
 	), candidates AS (
 		SELECT n.*, q.partial, q.exact,
@@ -40,10 +50,10 @@ const nodeSearchSQL = `
 		       strpos(lower(n.body), q.literal) AS body_position,
 		       n.search_document @@ q.exact AS exact_match,
 		       cardinality(q.terms) AS term_count,
-		       (SELECT count(*) FROM unnest(q.terms) AS words(term)
-		        WHERE term = ANY(tsvector_to_array(n.search_document))) AS matched_terms,
-		       (SELECT count(*) FROM unnest(q.terms) AS words(term)
-		        WHERE term = ANY(tsvector_to_array(to_tsvector('russian', n.title)))) AS title_terms
+		       (SELECT count(*) FROM term_groups
+		        WHERE alternatives && tsvector_to_array(n.search_document)) AS matched_terms,
+		       (SELECT count(*) FROM term_groups
+		        WHERE alternatives && tsvector_to_array(to_tsvector('russian', n.title))) AS title_terms
 		FROM cs.nodes n CROSS JOIN queries q
 		WHERE ` + nodeFiltersSQL + `
 		AND (n.search_document @@ q.exact OR ($7::boolean AND
@@ -54,7 +64,7 @@ const nodeSearchSQL = `
 		       ts_rank_cd(search_document, CASE WHEN $7 THEN partial ELSE exact END, 32) AS relevance
 		FROM candidates
 		WHERE exact_match OR ($7 AND (title_literal OR body_position > 0
-			OR matched_terms >= least(2, greatest(1, term_count - 1))))
+			OR (term_count > 0 AND matched_terms >= least(2, term_count))))
 		ORDER BY ` + nodeSearchOrder + `
 		LIMIT $8 OFFSET $9
 	)
