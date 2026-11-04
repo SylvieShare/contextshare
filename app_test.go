@@ -43,6 +43,34 @@ func TestPagesAndOAuthRedirects(t *testing.T) {
 	}
 }
 
+func TestMCPValidatesProxyHostAndOrigin(t *testing.T) {
+	const base = "https://contextshare.example"
+	a, err := newApp(config{base: base, trustedProxy: true}, &store{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := a.routes()
+	for _, test := range []struct {
+		name, host, origin string
+		want               int
+	}{
+		{"canonical host reaches authentication", "contextshare.example", "", http.StatusUnauthorized},
+		{"unrecognized host is rejected", "attacker.example", "", http.StatusForbidden},
+		{"cross-origin request is rejected", "contextshare.example", "https://attacker.example", http.StatusForbidden},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, base+"/mcp", nil)
+			request.Host = test.host
+			request.Header.Set("Origin", test.origin)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("got HTTP %d, want %d", response.Code, test.want)
+			}
+		})
+	}
+}
+
 type fixtureHTTP struct {
 	t      *testing.T
 	client *http.Client

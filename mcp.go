@@ -266,8 +266,22 @@ func (a *app) makeMCP() http.Handler {
 			}
 			return a.db.request(ctx, in.ProjectID, in.RequestID)
 		})
-	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+	_, publicHost, _ := strings.Cut(a.cfg.base, "://")
+	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{
+		Stateless:                  true,
+		JSONResponse:               true,
+		DisableLocalhostProtection: a.cfg.trustedProxy,
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The HTTPS proxy connects over loopback and forwards the canonical public Host.
+		if a.cfg.trustedProxy && !strings.EqualFold(r.Host, publicHost) {
+			http.Error(w, "Invalid Host", http.StatusForbidden)
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" && origin != a.cfg.base {
+			http.Error(w, "Invalid Origin", http.StatusForbidden)
+			return
+		}
 		// Stateless transport has no cross-request session that can outlive a grant.
 		raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok {
