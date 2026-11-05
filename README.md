@@ -6,13 +6,23 @@
 
 ## Локальный режим
 
-Локальный MCP работает с одним Git worktree через stdio. Укажите путь к
-репозиторию с файлом `.contextshare/project.json`.
+Локальный MCP работает через stdio. `--project` задаёт начальную рабочую копию
+репозитория с файлом `.contextshare/project.json`.
 
 ```powershell
 go build -o contextshare.exe .
 codex mcp add contextshare-local -- C:/Tools/contextshare.exe local --project C:/Projects/my-worktree
 ```
+
+Для задачи вызовите `list_worktrees`, затем `select_worktree` с абсолютным путём
+рабочей копии. Используйте возвращённый `project_id` во всех следующих вызовах.
+Каждая копия получает свой идентификатор. Выбор в одном чате сохраняет
+независимость от выбора в другом.
+
+Ответы содержат путь, ветку, commit и признак незакоммиченных изменений
+в `workspace`. Эта информация также доступна клиентам в `_meta.workspace`.
+Статус `current` относится к материалу внутри этой ревизии рабочей копии.
+Для записи через MCP требуется идентификатор из `select_worktree`.
 
 Источник данных — `README.md`, каталог `wiki_dir` из конфигурации проекта и
 текстовые файлы `.contextshare/`.
@@ -25,7 +35,11 @@ codex mcp add contextshare-local -- C:/Tools/contextshare.exe local --project C:
 
 Вспомогательная SQLite-база `contextshare-index-v1.sqlite` находится в Git
 каталоге выбранного worktree. При изменении файлов обновляется поиск, локальные
-пути и ссылки. История доступна в общем поиске и по фильтру `historical`.
+пути и ссылки. Поиск показывает действующие материалы по умолчанию.
+История доступна по фильтру `historical` или `all`.
+В `project.json` можно задать `search_aliases` как группы синонимов из отдельных
+слов, например `[["характеристики", "статы"]]`. Они нормализуются той же русской
+морфологией, что и документы, и участвуют в ранжировании и выборе фрагмента.
 Обзор и чтение работают без HTTP и PostgreSQL.
 
 Вики читается через `get_wiki_document`, вложения через `get_wiki_attachment`.
@@ -37,6 +51,19 @@ codex mcp add contextshare-local -- C:/Tools/contextshare.exe local --project C:
 `set_wiki_link` обновляет типизированные связи. `validate_wiki` запускает проверку
 структуры и ссылок в проекте. Для скриптов доступны `local --project PATH wiki
 get|write|validate`, команды чтения и записи принимают JSON в stdin.
+
+CLI также принимает обычные флаги:
+
+```powershell
+contextshare local --project C:/Projects/my-worktree wiki get --path features/maps.md --start-line 20 --lines 40 --text
+contextshare local --project C:/Projects/my-worktree wiki edit --path features/maps.md --find "Старый текст" --replace "Новый текст"
+contextshare local --project C:/Projects/my-worktree wiki write --path features/new.md --file C:/Temp/new.md
+contextshare local --project C:/Projects/my-worktree wiki get --help
+```
+
+Для полной замены существующей страницы `wiki write` требует
+`--expected-sha256`. `wiki edit` читает текущую версию и заменяет единственное
+совпадение с защитой от параллельной правки. JSON-ввод доступен для скриптов.
 
 ## Облачный запуск
 

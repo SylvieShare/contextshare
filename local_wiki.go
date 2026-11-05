@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -38,6 +40,7 @@ type wikiWriteArgs struct {
 }
 
 type wikiDocument struct {
+	localMetadata
 	Path    string `json:"path"`
 	SHA256  string `json:"sha256"`
 	Content string `json:"content,omitempty"`
@@ -45,6 +48,7 @@ type wikiDocument struct {
 }
 
 type wikiValidation struct {
+	localMetadata
 	OK     bool   `json:"ok"`
 	Output string `json:"output"`
 }
@@ -57,6 +61,11 @@ type wikiLinkArgs struct {
 	Remove    bool   `json:"remove,omitempty"`
 }
 
+type localLinkResult struct {
+	localMetadata
+	seedLink
+}
+
 type wikiDeleteArgs struct {
 	ProjectID string `json:"project_id"`
 	Path      string `json:"path"`
@@ -64,6 +73,7 @@ type wikiDeleteArgs struct {
 }
 
 type wikiAttachment struct {
+	localMetadata
 	Path    string `json:"path"`
 	SHA256  string `json:"sha256"`
 	Bytes   int    `json:"bytes"`
@@ -83,38 +93,39 @@ var wikiAttachmentTypes = []string{".json", ".csv", ".png", ".webp"}
 func (w *localWorkspace) registerLocalWiki(server *mcp.Server) {
 	localTool(server, w, "get_wiki_document", "Read wiki Markdown and its full-file SHA-256. Use start_line and line_count to read a range.", true, true,
 		func(in wikiReadArgs) string { return in.ProjectID },
-		func(_ context.Context, data *localSnapshot, in wikiReadArgs) (wikiDocument, error) {
+		func(_ context.Context, w *localWorkspace, data *localSnapshot, in wikiReadArgs) (wikiDocument, error) {
 			return w.readWikiRange(data.config, in)
 		})
 	localTool(server, w, "write_wiki_document", "Create or update wiki Markdown. For updates pass the full-file expected_sha256. Supply content, or find and replace a unique existing fragment.", false, false,
 		func(in wikiWriteArgs) string { return in.ProjectID },
-		func(ctx context.Context, _ *localSnapshot, in wikiWriteArgs) (wikiDocument, error) {
+		func(ctx context.Context, w *localWorkspace, _ *localSnapshot, in wikiWriteArgs) (wikiDocument, error) {
 			return w.writeWiki(ctx, in)
 		})
 	localTool(server, w, "delete_wiki_document", "Remove a wiki document by SHA-256 after removing its incoming links. Use only when requested.", false, false,
 		func(in wikiDeleteArgs) string { return in.ProjectID },
-		func(ctx context.Context, _ *localSnapshot, in wikiDeleteArgs) (wikiDocument, error) {
+		func(ctx context.Context, w *localWorkspace, _ *localSnapshot, in wikiDeleteArgs) (wikiDocument, error) {
 			return w.deleteWiki(ctx, in)
 		})
 	localTool(server, w, "get_wiki_attachment", "Read a JSON or CSV attachment, or locate an image by path and SHA-256.", true, true,
 		func(in wikiReadArgs) string { return in.ProjectID },
-		func(_ context.Context, data *localSnapshot, in wikiReadArgs) (wikiAttachment, error) {
+		func(_ context.Context, w *localWorkspace, data *localSnapshot, in wikiReadArgs) (wikiAttachment, error) {
 			return w.readWikiAttachment(data.config, in.Path)
 		})
 	localTool(server, w, "write_wiki_attachment", "Attach JSON, CSV, PNG or WebP. Provide text or a worktree-relative source_path. For replacements pass the existing SHA-256.", false, false,
 		func(in wikiAttachmentWriteArgs) string { return in.ProjectID },
-		func(ctx context.Context, _ *localSnapshot, in wikiAttachmentWriteArgs) (wikiAttachment, error) {
+		func(ctx context.Context, w *localWorkspace, _ *localSnapshot, in wikiAttachmentWriteArgs) (wikiAttachment, error) {
 			return w.writeWikiAttachment(ctx, in)
 		})
 	localTool(server, w, "validate_wiki", "Check the complete wiki structure, links, anchors and stored ContextShare relationships.", true, true,
 		func(in projectArgs) string { return in.ProjectID },
-		func(ctx context.Context, data *localSnapshot, _ projectArgs) (wikiValidation, error) {
+		func(ctx context.Context, w *localWorkspace, data *localSnapshot, _ projectArgs) (wikiValidation, error) {
 			return w.validateWiki(ctx, data)
 		})
 	localTool(server, w, "set_wiki_link", "Add or remove a typed relationship between existing node IDs.", false, true,
 		func(in wikiLinkArgs) string { return in.ProjectID },
-		func(ctx context.Context, _ *localSnapshot, in wikiLinkArgs) (seedLink, error) {
-			return w.setWikiLink(ctx, in)
+		func(ctx context.Context, w *localWorkspace, _ *localSnapshot, in wikiLinkArgs) (localLinkResult, error) {
+			link, err := w.setWikiLink(ctx, in)
+			return localLinkResult{seedLink: link}, err
 		})
 }
 
@@ -186,7 +197,7 @@ func (w *localWorkspace) writeWiki(ctx context.Context, in wikiWriteArgs) (wikiD
 		if err != nil {
 			return err
 		}
-		if data.config.Project.ID != in.ProjectID {
+		if !w.acceptsProject(in.ProjectID, data.config.Project.ID) {
 			return errForbidden
 		}
 		name, err := wikiPath(data.config, in.Path, ".md")
@@ -227,7 +238,7 @@ func (w *localWorkspace) deleteWiki(ctx context.Context, in wikiDeleteArgs) (wik
 		if err != nil {
 			return err
 		}
-		if in.ProjectID != data.config.Project.ID {
+		if !w.acceptsProject(in.ProjectID, data.config.Project.ID) {
 			return errForbidden
 		}
 		doc, err := w.readWiki(data.config, in.Path)
@@ -309,7 +320,7 @@ func (w *localWorkspace) writeWikiAttachment(ctx context.Context, in wikiAttachm
 		if err != nil {
 			return err
 		}
-		if data.config.Project.ID != in.ProjectID {
+		if !w.acceptsProject(in.ProjectID, data.config.Project.ID) {
 			return errForbidden
 		}
 		name, err := wikiPath(data.config, in.Path, wikiAttachmentTypes...)
@@ -378,7 +389,7 @@ func (w *localWorkspace) setWikiLink(ctx context.Context, in wikiLinkArgs) (seed
 		if err != nil {
 			return err
 		}
-		if data.config.Project.ID != in.ProjectID {
+		if !w.acceptsProject(in.ProjectID, data.config.Project.ID) {
 			return errForbidden
 		}
 		if link.From == link.To || !allowed(link.Kind, linkKinds) ||
@@ -444,8 +455,28 @@ func (w *localWorkspace) validateWiki(ctx context.Context, data *localSnapshot) 
 }
 
 func (w *localWorkspace) wikiCLI(ctx context.Context, args []string) error {
-	if len(args) != 2 || args[0] != "wiki" || !allowed(args[1], []string{"get", "write", "validate"}) {
-		return fmt.Errorf("usage: contextshare local --project PATH wiki get|write|validate")
+	if len(args) < 2 || args[0] != "wiki" || !allowed(args[1], []string{"get", "write", "edit", "validate"}) {
+		fmt.Fprint(os.Stderr, wikiCLIHelp)
+		return fmt.Errorf("choose wiki get, write, edit or validate")
+	}
+	flags := flag.NewFlagSet("wiki "+args[1], flag.ContinueOnError)
+	flags.Usage = func() { fmt.Fprint(flags.Output(), wikiCLIHelp); flags.PrintDefaults() }
+	name := flags.String("path", "", "Wiki-relative Markdown path")
+	inputFile := flags.String("file", "", "UTF-8 file containing replacement Markdown")
+	expected := flags.String("expected-sha256", "", "Expected SHA-256 of the current complete document")
+	find := flags.String("find", "", "Unique existing fragment for wiki edit")
+	replace := flags.String("replace", "", "Replacement for the unique fragment")
+	start := flags.Int("start-line", 0, "First line to read, starting at 1")
+	count := flags.Int("lines", 0, "Number of lines to read")
+	textOnly := flags.Bool("text", false, "Print Markdown instead of JSON for wiki get")
+	if err := flags.Parse(args[2:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected wiki arguments")
 	}
 	data, err := w.load()
 	if err != nil {
@@ -454,15 +485,56 @@ func (w *localWorkspace) wikiCLI(ctx context.Context, args []string) error {
 	var result any
 	switch args[1] {
 	case "get":
-		var in wikiReadArgs
-		if err := json.NewDecoder(os.Stdin).Decode(&in); err != nil {
-			return err
+		in := wikiReadArgs{Path: *name, StartLine: *start, LineCount: *count}
+		if *name == "" {
+			if err := json.NewDecoder(os.Stdin).Decode(&in); err != nil {
+				return err
+			}
 		}
 		result, err = w.readWikiRange(data.config, in)
-	case "write":
-		var in wikiWriteArgs
-		if err := json.NewDecoder(io.LimitReader(os.Stdin, 4*maxWikiDocumentSize)).Decode(&in); err != nil {
+		if err == nil && *textOnly {
+			_, err = fmt.Fprint(os.Stdout, result.(wikiDocument).Content)
 			return err
+		}
+	case "write", "edit":
+		in := wikiWriteArgs{ProjectID: data.config.Project.ID, Path: *name, Expected: *expected, Find: *find, Replace: *replace}
+		if *name == "" {
+			if args[1] == "edit" {
+				return fmt.Errorf("wiki edit requires --path and --find")
+			}
+			if err := json.NewDecoder(io.LimitReader(os.Stdin, 4*maxWikiDocumentSize)).Decode(&in); err != nil {
+				return err
+			}
+		} else if args[1] == "edit" {
+			if in.Find == "" || *inputFile != "" {
+				return fmt.Errorf("wiki edit requires --find and accepts --replace")
+			}
+			if in.Expected == "" {
+				current, err := w.readWiki(data.config, in.Path)
+				if err != nil {
+					return err
+				}
+				in.Expected = current.SHA256
+			}
+		} else {
+			var body []byte
+			if *inputFile != "" {
+				f, err := os.Open(*inputFile)
+				if err != nil {
+					return err
+				}
+				body, err = io.ReadAll(io.LimitReader(f, maxWikiDocumentSize+1))
+				f.Close()
+				if err != nil {
+					return err
+				}
+			} else {
+				body, err = io.ReadAll(io.LimitReader(os.Stdin, maxWikiDocumentSize+1))
+				if err != nil {
+					return err
+				}
+			}
+			in.Content = string(body)
 		}
 		in.ProjectID = data.config.Project.ID
 		result, err = w.writeWiki(ctx, in)
@@ -472,7 +544,15 @@ func (w *localWorkspace) wikiCLI(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+	info, err := w.info(ctx)
+	if err != nil {
+		return err
+	}
+	wire, err := workspaceJSON(result, info)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(os.Stdout, string(wire)); err != nil {
 		return err
 	}
 	if validation, ok := result.(wikiValidation); ok && !validation.OK {
@@ -480,3 +560,15 @@ func (w *localWorkspace) wikiCLI(ctx context.Context, args []string) error {
 	}
 	return nil
 }
+
+const wikiCLIHelp = `ContextShare wiki commands
+
+contextshare local --project C:/Projects/my-worktree wiki get --path features/maps.md
+contextshare local --project C:/Projects/my-worktree wiki get --path features/maps.md --start-line 20 --lines 40 --text
+contextshare local --project C:/Projects/my-worktree wiki edit --path features/maps.md --find "old text" --replace "new text"
+contextshare local --project C:/Projects/my-worktree wiki write --path features/new.md --file C:/Temp/new.md
+contextshare local --project C:/Projects/my-worktree wiki write --path features/maps.md --file C:/Temp/maps.md --expected-sha256 HASH
+contextshare local --project C:/Projects/my-worktree wiki validate
+
+JSON on stdin remains available for wiki get and wiki write without --path.
+`

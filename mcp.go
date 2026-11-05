@@ -15,7 +15,7 @@ import (
 type grantKey struct{}
 
 type projectArgs struct {
-	ProjectID string `json:"project_id" jsonschema:"ID of the project selected via list_projects"`
+	ProjectID string `json:"project_id" jsonschema:"Project ID returned by the current tool workflow"`
 }
 type sectionArgs struct {
 	ProjectID string `json:"project_id"`

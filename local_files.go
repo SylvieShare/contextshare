@@ -29,6 +29,7 @@ type localConfig struct {
 	Sections        []localSection `json:"sections"`
 	FallbackSection string         `json:"fallback_section"`
 	WikiDir         string         `json:"wiki_dir,omitempty"`
+	SearchAliases   [][]string     `json:"search_aliases,omitempty"`
 }
 
 func (c localConfig) wikiDir() string {
@@ -65,6 +66,7 @@ type localSnapshot struct {
 	batches   map[string]localBatch
 	links     []seedLink
 	documents int
+	aliases   map[string]string
 }
 
 func decodeLocal(data []byte, dst any) error {
@@ -154,6 +156,29 @@ func buildLocalSnapshot(root *os.Root, files map[string][]byte, hash string) (*l
 		return nil, fmt.Errorf("project.json: %w", err)
 	}
 	config := data.config
+	data.aliases = map[string]string{}
+	if len(config.SearchAliases) > 50 {
+		return nil, fmt.Errorf("too many search alias groups")
+	}
+	for _, group := range config.SearchAliases {
+		if len(group) < 2 || len(group) > 10 {
+			return nil, fmt.Errorf("search aliases need two to ten single words")
+		}
+		var canonical string
+		for _, word := range group {
+			terms := localTerms(word)
+			if len(terms) != 1 || len(word) > 80 {
+				return nil, fmt.Errorf("search alias must contain one word")
+			}
+			if canonical == "" {
+				canonical = terms[0]
+			}
+			if old := data.aliases[terms[0]]; old != "" && old != canonical {
+				return nil, fmt.Errorf("conflicting search alias %q", word)
+			}
+			data.aliases[terms[0]] = canonical
+		}
+	}
 	if config.Version != 1 || !textOK(config.Project.ID, 1, 120) || !textOK(config.Project.Name, 1, 160) {
 		return nil, fmt.Errorf("unsupported local project format")
 	}

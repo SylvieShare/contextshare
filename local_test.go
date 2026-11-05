@@ -27,11 +27,16 @@ func TestLocalWorkspace(t *testing.T) {
 	}
 	write(".contextshare/project.json", `{
 		"version": 1, "project": {"id":"test","name":"Test"},
-		"sections":[{"id":"guide","title":"Rules","paths":["md/*"]}], "fallback_section":"guide"
+		"sections":[{"id":"guide","title":"Rules","paths":["md/*"]}], "fallback_section":"guide",
+		"search_aliases":[["характеристики","статы"]]
 	}`)
 	write("client.go", "package client\n")
 	write("md/editor.md", "# Запуск редактора Android\n\nДля складного окна учитывается разделяющий hinge. [Код](../client.go)\n\n"+strings.Repeat("Дополнительные условия. ", 30)+"OpenGL ES 3.0.")
 	write("md/reports/publish.md", "# Девятый набор миниатюр\n\nИстория публикации. [Редактор](../editor.md).")
+	write("md/stats.md", "# Статы персонажа\n\nОписание карточек.")
+	write("md/panel.md", "# Карточки листа\n\n"+strings.Repeat("Навыки используют модификатор и владение. ", 8))
+	write("md/misc.md", "# Прочее\n\nСсылка на навыки.")
+	write("md/skill-marker.md", "# Карточки листа\n\nВладение навыком отмечается одной меткой.")
 	w, err := openLocalWorkspace(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
@@ -52,11 +57,24 @@ func TestLocalWorkspace(t *testing.T) {
 	if hits := find("разделяющего шарнира"); len(hits) != 1 || hits[0].SourcePath != "md/editor.md" {
 		t.Fatal("Russian inflection and hinge alias did not find the source")
 	}
+	if hits := find("характеристики"); len(hits) != 1 || hits[0].SourcePath != "md/stats.md" {
+		t.Fatal("project search aliases did not resolve the topic")
+	}
+	if hits := find("навыки"); len(hits) < 2 || hits[0].SourcePath != "md/panel.md" {
+		t.Fatal("single-term search preferred a passing mention over the main topic")
+	}
+	if hits := find("Как обозначается владение навыком?"); len(hits) == 0 || hits[0].SourcePath != "md/skill-marker.md" {
+		t.Fatal("question search missed the proficiency marker")
+	}
 	if hits := find(`"OpenGL ES 3.0" -Vulkan`); len(hits) != 1 || !strings.Contains(hits[0].Body, "OpenGL ES 3.0") {
 		t.Fatal("phrase preview did not find the match")
 	}
-	if hits := find("девятый набор миниатюр"); len(hits) != 1 || hits[0].Status != "historical" {
-		t.Fatal("historical result is missing")
+	if hits := find("девятый набор миниатюр"); len(hits) != 0 {
+		t.Fatal("default search included history")
+	}
+	history, err := w.findNodes(ctx, w.snapshot, nodeListArgs{Query: "девятый набор миниатюр", Status: "historical"}, true)
+	if err != nil || len(history.Items) != 1 || history.Items[0].Status != "historical" {
+		t.Fatalf("explicit history result is missing: %v", err)
 	}
 	if len(w.snapshot.links) != 1 || len(w.snapshot.notes["md/editor.md"].Node.CodePaths) != 1 {
 		t.Fatal("document and code links are missing")

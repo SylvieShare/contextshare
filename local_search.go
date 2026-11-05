@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -12,10 +13,10 @@ import (
 var localQueryParts = regexp.MustCompile(`(-?)(?:"([^"]+)"|([^\s"]+))`)
 var localWords = regexp.MustCompile(`[\p{L}\p{N}]+`)
 
-func localSearchExpression(query string) string {
+func localSearchExpression(query string, aliases ...map[string]string) string {
 	if allowPartialSearch(query) {
 		terms := map[string]bool{}
-		for _, term := range localTerms(query) {
+		for _, term := range localQueryTerms(query, aliases...) {
 			terms[term] = true
 		}
 		quoted := sortedLocalKeys(terms)
@@ -40,7 +41,7 @@ func localSearchExpression(query string) string {
 			finish()
 			continue
 		}
-		terms := localTerms(part[2] + part[3])
+		terms := localTerms(part[2]+part[3], aliases...)
 		if len(terms) == 0 {
 			continue
 		}
@@ -75,9 +76,6 @@ func matchesLocalNode(n localNote, in nodeListArgs) bool {
 func (w *localWorkspace) findNodes(ctx context.Context, data *localSnapshot, in nodeListArgs, search bool) (page[localNode], error) {
 	if in.Status == "" {
 		in.Status = "current"
-		if search {
-			in.Status = "all"
-		}
 	}
 	if !textOK(in.Query, 0, 240) || in.Status != "all" && !allowed(in.Status, nodeStates) ||
 		in.Kind != "" && !allowed(in.Kind, nodeKinds) || in.Platform != "" && !allowed(in.Platform, platforms) {
@@ -105,9 +103,9 @@ func (w *localWorkspace) findNodes(ctx context.Context, data *localSnapshot, in 
 	}
 	offset = min(offset, len(result))
 	result = result[offset:min(offset+limit+1, len(result))]
-	words := localTerms(query)
+	words := localQueryTerms(query, data.aliases)
 	for i := range result {
-		result[i].Body = localExcerpt(result[i].Body, query, words)
+		result[i].Body = localExcerpt(result[i].Body, query, words, data.aliases)
 		result[i].CodePaths = nil
 	}
 	return paginate(result, limit, offset), nil
@@ -128,20 +126,22 @@ func (w *localWorkspace) rankLocalNodes(ctx context.Context, data *localSnapshot
 		return nil, err
 	}
 	type hit struct {
-		node       localNode
-		exactTitle bool
-		exactBody  bool
-		weight     int
-		bm25       float64
+		node         localNode
+		exactTitle   bool
+		exactBody    bool
+		weight       int
+		window       int
+		topicDensity float64
+		bm25         float64
 	}
 	hits := map[string]hit{}
 	needles := map[string]bool{}
-	for _, term := range localTerms(query) {
+	for _, term := range localQueryTerms(query, data.aliases) {
 		needles[term] = true
 	}
 	partial := allowPartialSearch(query)
 	folded := strings.ToLower(query)
-	expression := localSearchExpression(query)
+	expression := localSearchExpression(query, data.aliases)
 	if expression != "" {
 		rows, err := w.db.QueryContext(ctx, "SELECT id,title,body,bm25(node_search,0,5,1) FROM node_search WHERE node_search MATCH ?", expression)
 		if err != nil {
@@ -169,10 +169,23 @@ func (w *localWorkspace) rankLocalNodes(ctx context.Context, data *localSnapshot
 					coverage++
 				}
 			}
-			exactTitle := strings.Contains(strings.ToLower(n.Node.Title), folded)
-			exactBody := strings.Contains(strings.ToLower(n.Node.Body), folded)
+			exactTitle := strings.Contains(strings.ToLower(n.Node.Title), folded) || len(needles) > 0 && titleHits == len(needles)
+			exactBody := len(needles) > 1 && strings.Contains(strings.ToLower(n.Node.Body), folded)
 			if !partial || exactTitle || exactBody || coverage >= min(2, len(needles)) {
-				hits[id] = hit{node: n.Node, exactTitle: exactTitle, exactBody: exactBody, weight: coverage + 2*titleHits, bm25: rank}
+				terms := strings.Fields(body)
+				positions := make([]localTermPosition, 0)
+				for i, term := range terms {
+					if needles[term] {
+						positions = append(positions, localTermPosition{term, i, i + 1})
+					}
+				}
+				start, end := localTermWindow(positions)
+				density := 0.0
+				if len(needles) == 1 {
+					density = float64(len(positions)) / math.Sqrt(float64(max(1, len(terms))))
+				}
+				hits[id] = hit{node: n.Node, exactTitle: exactTitle, exactBody: exactBody, weight: coverage + 2*titleHits,
+					window: end - start, topicDensity: density, bm25: rank}
 			}
 		}
 		if err := rows.Err(); err != nil {
@@ -214,6 +227,12 @@ func (w *localWorkspace) rankLocalNodes(ctx context.Context, data *localSnapshot
 		if a.weight != b.weight {
 			return a.weight > b.weight
 		}
+		if a.topicDensity != b.topicDensity {
+			return a.topicDensity > b.topicDensity
+		}
+		if a.window != b.window {
+			return a.window < b.window
+		}
 		if (a.node.Status == "current") != (b.node.Status == "current") {
 			return a.node.Status == "current"
 		}
@@ -229,7 +248,7 @@ func (w *localWorkspace) rankLocalNodes(ctx context.Context, data *localSnapshot
 	return result, nil
 }
 
-func localExcerpt(body, query string, words []string) string {
+func localExcerpt(body, query string, words []string, aliases ...map[string]string) string {
 	if query == "" {
 		return string([]rune(body)[:min(220, utf8.RuneCountInString(body))])
 	}
@@ -239,13 +258,16 @@ func localExcerpt(body, query string, words []string) string {
 		for _, word := range words {
 			wanted[word] = true
 		}
-		best := 0
+		var positions []localTermPosition
 		for _, span := range localWords.FindAllStringIndex(body, -1) {
-			for _, term := range localTerms(body[span[0]:span[1]]) {
-				if wanted[term] && len(term) > best {
-					position, best = span[0], len(term)
+			for _, term := range localTerms(body[span[0]:span[1]], aliases...) {
+				if wanted[term] {
+					positions = append(positions, localTermPosition{term, span[0], span[1]})
 				}
 			}
+		}
+		if len(positions) > 0 {
+			position, _ = localTermWindow(positions)
 		}
 	}
 	runes := []rune(body)
@@ -262,4 +284,62 @@ func localExcerpt(body, query string, words []string) string {
 		preview += "…"
 	}
 	return preview
+}
+
+func localQueryTerms(query string, aliases ...map[string]string) []string {
+	terms := localTerms(query, aliases...)
+	words := strings.Fields(strings.ToLower(query))
+	if len(words) > 0 && allowed(words[0], []string{"как", "где", "почему", "чем", "что"}) {
+		filler := map[string]bool{}
+		for _, word := range []string{"означает", "показывается", "выглядит", "работает", "найти", "расположено", "называется", "устроено"} {
+			for _, term := range localTerms(word, aliases...) {
+				filler[term] = true
+			}
+		}
+		filtered := make([]string, 0, len(terms))
+		for _, term := range terms {
+			if !filler[term] {
+				filtered = append(filtered, term)
+			}
+		}
+		if len(filtered) > 0 {
+			return filtered
+		}
+	}
+	return terms
+}
+
+type localTermPosition struct {
+	term       string
+	start, end int
+}
+
+// Select the shortest passage covering all distinct query terms present in
+// this document. Repeated words do not outweigh a nearby matching phrase.
+func localTermWindow(positions []localTermPosition) (int, int) {
+	if len(positions) == 0 {
+		return 0, 0
+	}
+	needed := map[string]bool{}
+	for _, p := range positions {
+		needed[p.term] = true
+	}
+	counts := map[string]int{}
+	start, end := positions[0].start, positions[len(positions)-1].end
+	left := 0
+	for _, right := range positions {
+		counts[right.term]++
+		for len(counts) == len(needed) {
+			first := positions[left]
+			if right.end-first.start < end-start {
+				start, end = first.start, right.end
+			}
+			counts[first.term]--
+			if counts[first.term] == 0 {
+				delete(counts, first.term)
+			}
+			left++
+		}
+	}
+	return start, end
 }

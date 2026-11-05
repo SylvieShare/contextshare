@@ -17,11 +17,14 @@ import (
 )
 
 type localWorkspace struct {
-	path     string
-	root     *os.Root
-	db       *sql.DB
-	mu       sync.Mutex
-	snapshot *localSnapshot
+	path      string
+	root      *os.Root
+	db        *sql.DB
+	mu        sync.Mutex
+	snapshot  *localSnapshot
+	projectID string
+	routesMu  sync.Mutex
+	routes    map[string]*localWorkspace
 }
 
 func openLocalWorkspace(ctx context.Context, directory string) (*localWorkspace, error) {
@@ -43,13 +46,23 @@ func openLocalWorkspace(ctx context.Context, directory string) (*localWorkspace,
 		root.Close()
 		return nil, fmt.Errorf("%s: %w", localDir+"/project.json", err)
 	}
+	configBytes, err := root.ReadFile(localDir + "/project.json")
+	var config localConfig
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	if err := decodeLocal(configBytes, &config); err != nil {
+		root.Close()
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", filepath.Join(gitDir, "contextshare-index-v1.sqlite"))
 	if err != nil {
 		root.Close()
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	w := &localWorkspace{path: projectDir, root: root, db: db}
+	w := &localWorkspace{path: projectDir, root: root, db: db, projectID: config.Project.ID}
 	for _, statement := range []string{
 		"PRAGMA busy_timeout=5000",
 		"PRAGMA journal_mode=WAL",
@@ -65,6 +78,9 @@ func openLocalWorkspace(ctx context.Context, directory string) (*localWorkspace,
 }
 
 func (w *localWorkspace) close() {
+	for _, selected := range w.routes {
+		selected.close()
+	}
 	w.db.Close()
 	w.root.Close()
 }
@@ -105,7 +121,7 @@ func (w *localWorkspace) writeLock(ctx context.Context, change func(*sql.Conn) e
 }
 
 func (w *localWorkspace) index(ctx context.Context, data *localSnapshot) error {
-	const currentVersion = "1:"
+	const currentVersion = "3:"
 	key := currentVersion + data.hash
 	var stored string
 	err := w.db.QueryRowContext(ctx, "SELECT source_hash FROM index_state WHERE singleton=1").Scan(&stored)
@@ -133,7 +149,7 @@ func (w *localWorkspace) index(ctx context.Context, data *localSnapshot) error {
 		defer insert.Close()
 		for _, note := range data.notes {
 			n := note.Node
-			if _, err := insert.ExecContext(ctx, n.ID, strings.Join(localTerms(n.Title), " "), strings.Join(localTerms(n.Body), " ")); err != nil {
+			if _, err := insert.ExecContext(ctx, n.ID, strings.Join(localTerms(n.Title, data.aliases), " "), strings.Join(localTerms(n.Body, data.aliases), " ")); err != nil {
 				return err
 			}
 		}
@@ -148,9 +164,13 @@ var localTermAliases = map[string]string{
 	russian.Stem("офлайн", false):         "offline",
 	russian.Stem("оффлайн", false):        "offline",
 	russian.Stem("автосохранение", false): "autosave",
+	russian.Stem("обозначается", false):   "marker",
+	russian.Stem("обозначение", false):    "marker",
+	russian.Stem("метка", false):          "marker",
+	russian.Stem("пометка", false):        "marker",
 }
 
-func localTerms(input string) []string {
+func localTerms(input string, extra ...map[string]string) []string {
 	words := strings.FieldsFunc(strings.ToLower(input), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
@@ -166,6 +186,11 @@ func localTerms(input string) []string {
 		}
 		if alias := localTermAliases[word]; alias != "" {
 			word = alias
+		}
+		if len(extra) > 0 {
+			if alias := extra[0][word]; alias != "" {
+				word = alias
+			}
 		}
 		if word != "" {
 			out = append(out, word)

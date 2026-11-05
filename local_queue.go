@@ -15,7 +15,13 @@ import (
 )
 
 type localAdded struct {
+	localMetadata
 	Items []addedRequest `json:"items"`
+}
+
+type localRequestResult struct {
+	localMetadata
+	requestItem
 }
 
 type localRequestChange struct {
@@ -30,10 +36,10 @@ type localRequestChange struct {
 func (w *localWorkspace) registerLocalQueue(server *mcp.Server) {
 	localTool(server, w, "list_requests", "Read the local queue without claiming any work.", true, true,
 		func(in requestListArgs) string { return in.ProjectID },
-		func(_ context.Context, data *localSnapshot, in requestListArgs) (page[requestItem], error) {
+		func(_ context.Context, w *localWorkspace, data *localSnapshot, in requestListArgs) (localPageResult[requestItem], error) {
 			if in.State != "" && !allowed(in.State, requestStates) || in.Kind != "" && !allowed(in.Kind, requestKinds) ||
 				in.Platform != "" && !allowed(in.Platform, platforms) {
-				return page[requestItem]{}, errInvalid
+				return localPageResult[requestItem]{}, errInvalid
 			}
 			var out []requestItem
 			for _, item := range data.requests {
@@ -52,20 +58,20 @@ func (w *localWorkspace) registerLocalQueue(server *mcp.Server) {
 				}
 				return out[i].ID < out[j].ID
 			})
-			return localPage(out, in.Limit, in.Offset), nil
+			return localPageResult[requestItem]{page: localPage(out, in.Limit, in.Offset)}, nil
 		})
 	localTool(server, w, "get_request", "Read a request and its platform work.", true, true,
 		func(in requestArgs) string { return in.ProjectID },
-		func(_ context.Context, data *localSnapshot, in requestArgs) (requestItem, error) {
+		func(_ context.Context, w *localWorkspace, data *localSnapshot, in requestArgs) (localRequestResult, error) {
 			item, ok := data.requests[in.RequestID]
 			if !ok {
-				return requestItem{}, errMissing
+				return localRequestResult{}, errMissing
 			}
-			return item, nil
+			return localRequestResult{requestItem: item}, nil
 		})
 	localTool(server, w, "add_requests", "Write explicitly requested ideas to the local Git inbox. Reuse operation_id when retrying.", false, true,
 		func(in batchArgs) string { return in.ProjectID },
-		func(ctx context.Context, _ *localSnapshot, in batchArgs) (localAdded, error) {
+		func(ctx context.Context, w *localWorkspace, _ *localSnapshot, in batchArgs) (localAdded, error) {
 			return w.addLocalRequests(ctx, in)
 		})
 	for _, action := range []string{"prepare", "claim"} {
@@ -75,8 +81,9 @@ func (w *localWorkspace) registerLocalQueue(server *mcp.Server) {
 		}
 		localTool(server, w, action+"_request", description, false, false,
 			func(in localRequestChange) string { return in.ProjectID },
-			func(ctx context.Context, _ *localSnapshot, in localRequestChange) (requestItem, error) {
-				return w.changeLocalRequest(ctx, in, action)
+			func(ctx context.Context, w *localWorkspace, _ *localSnapshot, in localRequestChange) (localRequestResult, error) {
+				item, err := w.changeLocalRequest(ctx, in, action)
+				return localRequestResult{requestItem: item}, err
 			})
 	}
 }
@@ -120,7 +127,7 @@ func (w *localWorkspace) addLocalRequests(ctx context.Context, in batchArgs) (lo
 		if err != nil {
 			return err
 		}
-		if data.config.Project.ID != in.ProjectID {
+		if !w.acceptsProject(in.ProjectID, data.config.Project.ID) {
 			return errForbidden
 		}
 		if batch, ok := data.batches[name]; ok {
@@ -174,7 +181,7 @@ func (w *localWorkspace) changeLocalRequest(ctx context.Context, in localRequest
 		if err != nil {
 			return err
 		}
-		if data.config.Project.ID != in.ProjectID {
+		if !w.acceptsProject(in.ProjectID, data.config.Project.ID) {
 			return errForbidden
 		}
 		for name, batch := range data.batches {
